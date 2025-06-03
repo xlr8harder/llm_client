@@ -9,7 +9,8 @@ from .providers import (
     OpenRouterProvider,
     FireworksProvider,
     ChutesProvider,
-    GoogleProvider
+    GoogleProvider,
+    TNGTechProvider,
 )
 
 # Convenient mapping of provider names to their implementations
@@ -18,7 +19,8 @@ PROVIDER_MAP = {
     "openrouter": OpenRouterProvider,
     "fireworks": FireworksProvider,
     "chutes": ChutesProvider,
-    "google": GoogleProvider
+    "google": GoogleProvider,
+    "tngtech": TNGTechProvider,
 }
 
 def get_provider(provider_name):
@@ -49,5 +51,6 @@ __all__ = [
     'OpenRouterProvider',
     'FireworksProvider',
     'ChutesProvider',
-    'GoogleProvider'
+    'GoogleProvider',
+    'TNGTechProvider',
 ]

@@ -1,42 +1,39 @@
 """
-OpenRouter provider implementation for LLM client.
+OpenAI provider implementation for LLM client.
 """
 import json
-import os
 import requests
 
 from ..base import LLMProvider, LLMResponse
 
 # API Endpoint Constants
-OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+API_BASE = "https://experimental.model.tngtech.com/v1"
 
-class OpenRouterProvider(LLMProvider):
-    """Provider implementation for OpenRouter API"""
+class TNGTechrovider(LLMProvider):
+    """Provider implementation for OpenAI API"""
     
     def _get_api_key_env_var(self):
-        return 'OPENROUTER_API_KEY'
+        return 'TNGTECH_API_KEY'
     
     def make_chat_completion_request(self, messages, model_id, context=None, **options):
         """
-        Make a request to the OpenRouter API
+        Make a request to the OpenAI API
         
         Args:
             messages: List of message objects with 'role' and 'content' keys
-            model_id: OpenRouter model identifier
+            model_id: OpenAI model identifier
             context: Optional context object to include in the response
-            **options: Additional options (including allow_list and ignore_list for providers)
+            **options: Additional options for the request
         
         Returns:
             LLMResponse object with standardized result
         """
         try:
             # Prepare request data
-            url = f"{OPENROUTER_API_BASE}/chat/completions"
+            url = f"{API_BASE}/chat/completions"
             headers = {
                 "Authorization": f"Bearer {self.get_api_key()}", 
-                "Content-Type": "application/json",
-                "HTTP-Referer": os.getenv("OPENROUTER_REFERRER", "https://SpeechMap.ai"),
-                "X-Title": os.getenv("OPENROUTER_TITLE", "SpeechMap.ai")
+                "Content-Type": "application/json"
             }
             
             # Extract timeout if provided, otherwise default to 60 seconds
@@ -48,18 +45,6 @@ class OpenRouterProvider(LLMProvider):
                 "messages": messages,
                 "max_tokens": options.pop('max_tokens', 4096)
             }
-            
-            # Handle provider routing options
-            provider_routing = {}
-            
-            if 'allow_list' in options:
-                provider_routing["order"] = options.pop('allow_list')
-                provider_routing["allow_fallbacks"] = False
-            elif 'ignore_list' in options:
-                provider_routing["ignore"] = options.pop('ignore_list')
-                
-            if provider_routing:
-                data["provider"] = provider_routing
             
             # Add any remaining options to the payload
             data.update(options)
@@ -171,7 +156,7 @@ class OpenRouterProvider(LLMProvider):
             if isinstance(error_obj, dict) and 'message' in error_obj:
                 return error_obj['message']
             return str(error_obj)
-        return f"Error: {response_text[:200]}"
+        return f"Error (HTTP {response.status_code}): {response_text[:200]}"
     
     def _has_content_filter_error(self, response):
         """Check if the response contains a content filter error"""
@@ -196,20 +181,16 @@ class OpenRouterProvider(LLMProvider):
         }
     
     def _standardize_response(self, provider_response):
-        """Convert OpenRouter response to standardized format"""
+        """Convert OpenAI response to standardized format"""
         standardized = {
             "id": provider_response.get("id"),
             "created": provider_response.get("created"),
             "model": provider_response.get("model"),
-            "provider": "openrouter",
+            "provider": "openai",
             "content": None,
             "usage": provider_response.get("usage", {})
         }
         
-        # Extract additional OpenRouter metadata
-        if "_provider_used" in provider_response:
-            standardized["sub_provider"] = provider_response["_provider_used"]
-            
         # Extract content from the first choice
         if "choices" in provider_response and len(provider_response["choices"]) > 0:
             choice = provider_response["choices"][0]
@@ -218,55 +199,3 @@ class OpenRouterProvider(LLMProvider):
             standardized["finish_reason"] = choice.get("finish_reason")
         
         return standardized
-    
-    def get_available_providers(self, model_id):
-        """
-        Get list of providers available for the given model ID
-        
-        Args:
-            model_id: OpenRouter model identifier
-            
-        Returns:
-            List of provider names or None if the request fails
-        """
-        try:
-            endpoints_url = f"{OPENROUTER_API_BASE}/models/{model_id}/endpoints"
-            headers = {"Authorization": f"Bearer {self.get_api_key()}"}
-            
-            response = requests.get(endpoints_url, headers=headers, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Check structure based on user example: data is a list
-            if 'data' in data and isinstance(data['data'], list):
-                providers = [ep.get('provider_name') for ep in data['data'] if ep.get('provider_name')]
-                unique_providers = sorted(list(set(p for p in providers if p)))
-                return unique_providers
-                
-            # Check alternative nested structure
-            elif 'data' in data and 'endpoints' in data['data'] and isinstance(data['data']['endpoints'], list):
-                providers = [ep.get('provider_name') for ep in data['data']['endpoints'] if ep.get('provider_name')]
-                unique_providers = sorted(list(set(p for p in providers if p)))
-                return unique_providers
-                
-            else:
-                print(f"ERROR: Unexpected structure in OpenRouter model data for {model_id}")
-                return None
-                
-        except Exception as e:
-            print(f"ERROR: Failed to fetch OpenRouter providers for {model_id}: {str(e)}")
-            return None
-    
-    def is_model_available(self, model_id):
-        """
-        Check if a model is currently available on OpenRouter
-        
-        Args:
-            model_id: OpenRouter model identifier
-            
-        Returns:
-            Boolean indicating if the model is available
-        """
-        providers = self.get_available_providers(model_id)
-        return providers is not None and len(providers) > 0

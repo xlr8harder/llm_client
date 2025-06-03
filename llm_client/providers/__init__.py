@@ -6,6 +6,7 @@ from .openrouter import OpenRouterProvider
 from .fireworks import FireworksProvider
 from .chutes import ChutesProvider
 from .google import GoogleProvider
+from .tngtech import TNGTechProvider
 
 __all__ = [
     'OpenAIProvider',
@@ -13,4 +14,5 @@ __all__ = [
     'FireworksProvider',
     'ChutesProvider',
     'GoogleProvider'
+    'TNGTechProvider',
 ]
