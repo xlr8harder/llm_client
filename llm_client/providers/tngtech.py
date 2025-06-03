@@ -9,7 +9,7 @@ from ..base import LLMProvider, LLMResponse
 # API Endpoint Constants
 API_BASE = "https://experimental.model.tngtech.com/v1"
 
-class TNGTechrovider(LLMProvider):
+class TNGTechProvider(LLMProvider):
     """Provider implementation for OpenAI API"""
     
     def _get_api_key_env_var(self):
