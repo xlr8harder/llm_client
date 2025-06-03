@@ -13,7 +13,7 @@ import requests
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from llm_client import get_provider, LLMResponse
-from llm_client.providers import OpenAIProvider, OpenRouterProvider, GoogleProvider
+from llm_client.providers import OpenAIProvider, OpenRouterProvider, GoogleProvider, TNGTechProvider
 
 
 class TestProviders(unittest.TestCase):
@@ -27,7 +27,8 @@ class TestProviders(unittest.TestCase):
             'OPENROUTER_API_KEY': 'mock-openrouter-key',
             'FIREWORKS_API_KEY': 'mock-fireworks-key',
             'CHUTES_API_TOKEN': 'mock-chutes-token',
-            'GEMINI_API_KEY': 'mock-gemini-key'
+            'GEMINI_API_KEY': 'mock-gemini-key',
+            'TNGTECH_API_KEY': 'mock-tngtech-key',
         })
         self.env_patcher.start()
         
@@ -38,7 +39,7 @@ class TestProviders(unittest.TestCase):
     def test_provider_factory(self):
         """Test the provider factory function"""
         # Test all providers
-        provider_names = ["openai", "openrouter", "fireworks", "chutes", "google"]
+        provider_names = ["openai", "openrouter", "fireworks", "chutes", "google", "tngtech"]
         for name in provider_names:
             provider = get_provider(name)
             self.assertIsNotNone(provider)
@@ -63,6 +64,48 @@ class TestProviders(unittest.TestCase):
             fresh_provider = OpenAIProvider()
             with self.assertRaises(ValueError):
                 fresh_provider.get_api_key()
+
+    @patch('requests.post')
+    def test_tngtech_successful_request(self, mock_post):
+        """Test successful TNGTech request"""
+        # Mock the response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677858242,
+            "model": "gpt-4o-2024-08-06",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "This is a test response."
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30
+            }
+        }
+        mock_post.return_value = mock_response
+        
+        # Make the request
+        provider = get_provider("tngtech")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Test message"}],
+            model_id="gpt-4o-2024-08-06"
+        )
+        
+        # Verify the response
+        self.assertTrue(response.success)
+        self.assertEqual(response.standardized_response["content"], "This is a test response.")
+        self.assertEqual(response.standardized_response["model"], "gpt-4o-2024-08-06")
+        self.assertEqual(response.standardized_response["provider"], "openai")
                 
     @patch('requests.post')
     def test_openai_successful_request(self, mock_post):
