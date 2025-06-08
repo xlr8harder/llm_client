@@ -132,7 +132,7 @@ class OpenAIProvider(LLMProvider):
         except:
             error_json = None
             
-        error_message = self._extract_error_message(error_json, response.text)
+        error_message = self._extract_error_message(error_json, response)
         
         error_info = {
             "type": "api_error",
@@ -149,7 +149,7 @@ class OpenAIProvider(LLMProvider):
             context=context
         )
     
-    def _extract_error_message(self, error_json, response_text):
+    def _extract_error_message(self, error_json, response):
         """Extract error message from response"""
         if error_json and 'error' in error_json:
             error_obj = error_json['error']
