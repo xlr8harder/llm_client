@@ -7,7 +7,8 @@ import requests
 from ..base import LLMProvider, LLMResponse
 
 # API Endpoint Constants
-API_BASE = "https://experimental.model.tngtech.com/v1"
+API_BASE = "https://chat.model.tngtech.com/v1/chat/completions"
+
 
 class TNGTechProvider(LLMProvider):
     """Provider implementation for OpenAI API"""
