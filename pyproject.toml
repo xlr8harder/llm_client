@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm_client"
-version = "0.1.1"
+version = "0.1.2"
 description = "A clean, modular client library for interacting with various LLM providers"
 readme = "README.md"
 license = {text = "Apache-2.0"}
