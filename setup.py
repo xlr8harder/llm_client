@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="llm_client",
-    version="0.1.1",
+    version="0.1.2",
     author="",
     author_email="",
     description="A clean, modular client library for interacting with various LLM providers",
