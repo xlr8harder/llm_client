@@ -24,13 +24,12 @@ class OpenRouterProvider(LLMProvider):
             messages: List of message objects with 'role' and 'content' keys
             model_id: OpenRouter model identifier
             context: Optional context object to include in the response
-            **options: Additional options (including allow_list and ignore_list for providers)
+            **options: Additional options (including allow_list/only and ignore_list for providers)
         
         Returns:
             LLMResponse object with standardized result
         """
         try:
-            # Prepare request data
             url = f"{OPENROUTER_API_BASE}/chat/completions"
             headers = {
                 "Authorization": f"Bearer {self.get_api_key()}", 
@@ -39,32 +38,36 @@ class OpenRouterProvider(LLMProvider):
                 "X-Title": os.getenv("OPENROUTER_TITLE", "SpeechMap.ai")
             }
             
-            # Extract timeout if provided, otherwise default to 60 seconds
             timeout = options.pop('timeout', 60)
             
-            # Prepare the data payload
             data = {
                 "model": model_id,
                 "messages": messages,
                 "max_tokens": options.pop('max_tokens', 4096)
             }
             
-            # Handle provider routing options
+            # Provider routing controls
             provider_routing = {}
-            
-            if 'allow_list' in options:
-                provider_routing["order"] = options.pop('allow_list')
+            only = options.pop('only', None)
+            allow_list = options.pop('allow_list', None)
+            ignore_list = options.pop('ignore_list', None)
+
+            if only:
+                provider_routing["order"] = list(only)
                 provider_routing["allow_fallbacks"] = False
-            elif 'ignore_list' in options:
-                provider_routing["ignore"] = options.pop('ignore_list')
+            elif allow_list:
+                provider_routing["order"] = list(allow_list)
+                provider_routing["allow_fallbacks"] = False
+
+            if ignore_list:
+                provider_routing["ignore"] = list(ignore_list)
                 
             if provider_routing:
                 data["provider"] = provider_routing
             
-            # Add any remaining options to the payload
+            # Remaining options passthrough
             data.update(options)
             
-            # Make the request
             response = requests.post(
                 url=url, 
                 headers=headers, 
@@ -72,22 +75,19 @@ class OpenRouterProvider(LLMProvider):
                 timeout=timeout
             )
             
-            # Handle non-200 responses
             if response.status_code != 200:
                 return self._handle_error_response(response, context)
                 
-            # Process successful response
             raw_response = response.json()
             standardized_response = self._standardize_response(raw_response)
             
-            # Check if the response contains a content filter error
             if self._has_content_filter_error(raw_response):
                 error_info = self._extract_content_filter_error(raw_response)
                 return LLMResponse(
                     success=False,
                     error_info=error_info,
                     raw_provider_response=raw_response,
-                    is_retryable=False,  # Content filter errors are not retryable
+                    is_retryable=False,
                     context=context
                 )
             
@@ -95,12 +95,11 @@ class OpenRouterProvider(LLMProvider):
                 success=True,
                 standardized_response=standardized_response,
                 raw_provider_response=raw_response,
-                is_retryable=False,  # Not needed for success but included for consistency
+                is_retryable=False,
                 context=context
             )
             
         except requests.exceptions.Timeout as e:
-            # Handle timeout errors
             return LLMResponse(
                 success=False,
                 error_info={
@@ -108,11 +107,10 @@ class OpenRouterProvider(LLMProvider):
                     "message": f"Request timed out after {timeout} seconds: {str(e)}",
                     "exception": str(e)
                 },
-                is_retryable=True,  # Timeouts are retryable
+                is_retryable=True,
                 context=context
             )
         except requests.exceptions.RequestException as e:
-            # Handle network errors
             return LLMResponse(
                 success=False,
                 error_info={
@@ -121,11 +119,10 @@ class OpenRouterProvider(LLMProvider):
                     "exception": str(e),
                     "status_code": e.response.status_code if hasattr(e, 'response') and e.response else None
                 },
-                is_retryable=True,  # Network errors are usually retryable
+                is_retryable=True,
                 context=context
             )
         except Exception as e:
-            # Handle unexpected errors
             return LLMResponse(
                 success=False,
                 error_info={
@@ -133,7 +130,7 @@ class OpenRouterProvider(LLMProvider):
                     "message": str(e),
                     "exception": str(e)
                 },
-                is_retryable=False,  # Be conservative with unexpected errors
+                is_retryable=False,
                 context=context
             )
     
@@ -206,11 +203,9 @@ class OpenRouterProvider(LLMProvider):
             "usage": provider_response.get("usage", {})
         }
         
-        # Extract additional OpenRouter metadata
         if "_provider_used" in provider_response:
             standardized["sub_provider"] = provider_response["_provider_used"]
             
-        # Extract content from the first choice
         if "choices" in provider_response and len(provider_response["choices"]) > 0:
             choice = provider_response["choices"][0]
             if "message" in choice and "content" in choice["message"]:
@@ -222,12 +217,6 @@ class OpenRouterProvider(LLMProvider):
     def get_available_providers(self, model_id):
         """
         Get list of providers available for the given model ID
-        
-        Args:
-            model_id: OpenRouter model identifier
-            
-        Returns:
-            List of provider names or None if the request fails
         """
         try:
             endpoints_url = f"{OPENROUTER_API_BASE}/models/{model_id}/endpoints"
@@ -238,13 +227,11 @@ class OpenRouterProvider(LLMProvider):
             
             data = response.json()
             
-            # Check structure based on user example: data is a list
             if 'data' in data and isinstance(data['data'], list):
                 providers = [ep.get('provider_name') for ep in data['data'] if ep.get('provider_name')]
                 unique_providers = sorted(list(set(p for p in providers if p)))
                 return unique_providers
                 
-            # Check alternative nested structure
             elif 'data' in data and 'endpoints' in data['data'] and isinstance(data['data']['endpoints'], list):
                 providers = [ep.get('provider_name') for ep in data['data']['endpoints'] if ep.get('provider_name')]
                 unique_providers = sorted(list(set(p for p in providers if p)))
@@ -261,12 +248,6 @@ class OpenRouterProvider(LLMProvider):
     def is_model_available(self, model_id):
         """
         Check if a model is currently available on OpenRouter
-        
-        Args:
-            model_id: OpenRouter model identifier
-            
-        Returns:
-            Boolean indicating if the model is available
         """
         providers = self.get_available_providers(model_id)
         return providers is not None and len(providers) > 0
