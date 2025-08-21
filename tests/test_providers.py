@@ -105,7 +105,7 @@ class TestProviders(unittest.TestCase):
         self.assertTrue(response.success)
         self.assertEqual(response.standardized_response["content"], "This is a test response.")
         self.assertEqual(response.standardized_response["model"], "gpt-4o-2024-08-06")
-        self.assertEqual(response.standardized_response["provider"], "openai")
+        self.assertEqual(response.standardized_response["provider"], "tngtech")
                 
     @patch('requests.post')
     def test_openai_successful_request(self, mock_post):
