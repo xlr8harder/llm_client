@@ -361,7 +361,7 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
             passed_count = sum(1 for r in all_results if r.get("success"))
             failed_ids = [r["test_id"] for r in all_results if not r.get("success")]
             print(f"  Passed: {passed_count}")
-            print(f"  Failed: {len(all_results) - passed_count}{f' ({\", \".join(failed_ids)})' if failed_ids else ''}")
+            print(f" Failed: {len(all_results) - passed_count}{' (' + ', '.join(failed_ids) + ')' if failed_ids else ''}")
             print(f"  Overall Result: {'PASSED' if all_tests_passed else 'FAILED'}")
             print("-----------------------------")
 
