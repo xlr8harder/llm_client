@@ -157,7 +157,7 @@ class TNGTechProvider(LLMProvider):
             if isinstance(error_obj, dict) and 'message' in error_obj:
                 return error_obj['message']
             return str(error_obj)
-        return f"Error (HTTP {response.status_code}): {response_text[:200]}"
+        return f"Error (HTTP {response.status_code}): {response.text[:200]}"
     
     def _has_content_filter_error(self, response):
         """Check if the response contains a content filter error"""

@@ -13,6 +13,6 @@ __all__ = [
     'OpenRouterProvider',
     'FireworksProvider',
     'ChutesProvider',
-    'GoogleProvider'
+    'GoogleProvider',
     'TNGTechProvider',
 ]
