@@ -10,9 +10,10 @@ Design:
   provider are discarded before submission.
 """
 import sys
+import json
 import concurrent.futures
 from collections import deque
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Union
 
 from ..retry import retry_request
 from .. import get_provider
@@ -47,6 +48,8 @@ class CoherencyTester:
         test_prompts: List[Dict[str, str]] = None,
         num_workers: int = 4,
         allowed_subproviders: Optional[List[str]] = None,
+        request_overrides: Optional[Dict[str, Any]] = None,
+        verbose: bool = False,
     ):
         self.target_provider_name = target_provider_name
         self.target_model_id = target_model_id
@@ -55,6 +58,15 @@ class CoherencyTester:
         self.test_prompts = test_prompts or DEFAULT_TEST_PROMPTS
         self.num_workers = max(1, int(num_workers))
         self.allowed_subproviders = allowed_subproviders
+        self.request_overrides = request_overrides or {}
+        self.verbose = bool(verbose)
+
+        # Determine if reasoning expectation should be enforced
+        reasoning_cfg = self.request_overrides.get("reasoning") if isinstance(self.request_overrides, dict) else None
+        if isinstance(reasoning_cfg, dict) and "enabled" in reasoning_cfg:
+            self._expect_reasoning: Optional[bool] = bool(reasoning_cfg.get("enabled"))
+        else:
+            self._expect_reasoning = None  # do not enforce if not explicitly set
 
         # Provider instances
         self.target_provider = get_provider(target_provider_name)
@@ -150,6 +162,14 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
         if provider_filter and self.target_provider_name.lower() == "openrouter":
             options["allow_list"] = provider_filter
 
+        # Apply any explicit request overrides (e.g., reasoning config)
+        # Caller can pass arbitrary provider-specific options here.
+        if self.request_overrides:
+            # do not let overrides clobber the allow_list or timeout unless explicitly provided
+            for k, v in self.request_overrides.items():
+                if k not in options:
+                    options[k] = v
+
         response = retry_request(
             provider=self.target_provider,
             messages=messages,
@@ -179,6 +199,55 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                 "response": response.raw_provider_response,
                 "provider_filter": provider_filter,
             }
+
+        # Enforce reasoning presence/absence if explicitly configured
+        def _has_reasoning(raw: Any) -> bool:
+            try:
+                if not isinstance(raw, dict):
+                    return False
+                # Check message-level reasoning within choices
+                choices = raw.get("choices") or []
+                for ch in choices:
+                    msg = (ch or {}).get("message") or {}
+                    if "reasoning" in msg:
+                        r = msg.get("reasoning")
+                        if isinstance(r, str) and r.strip():
+                            return True
+                        if isinstance(r, dict) and any(bool(v) for v in r.values()):
+                            return True
+                # Check usage-level reasoning token accounting
+                usage = raw.get("usage") or {}
+                rt = usage.get("reasoning_tokens")
+                if isinstance(rt, (int, float)) and rt > 0:
+                    return True
+                # Fallback: top-level
+                rtop = raw.get("reasoning")
+                if isinstance(rtop, str) and rtop.strip():
+                    return True
+                if isinstance(rtop, dict) and any(bool(v) for v in rtop.values()):
+                    return True
+                return False
+            except Exception:
+                return False
+
+        if self._expect_reasoning is not None:
+            has_reasoning = _has_reasoning(response.raw_provider_response)
+            if self._expect_reasoning and not has_reasoning:
+                return {
+                    "test_id": test_id,
+                    "success": False,
+                    "error": "Reasoning expected but not found in response",
+                    "response": response.raw_provider_response,
+                    "provider_filter": provider_filter,
+                }
+            if (self._expect_reasoning is False) and has_reasoning:
+                return {
+                    "test_id": test_id,
+                    "success": False,
+                    "error": "Reasoning not expected but present in response",
+                    "response": response.raw_provider_response,
+                    "provider_filter": provider_filter,
+                }
 
         is_coherent, judge_result = self.judge_coherency(prompt, response_text, context)
         return {
@@ -299,6 +368,18 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                             )
                         else:
                             print(f"  [FAIL] Test '{test_id}' failed", file=sys.stderr)
+                        # Verbose dump of the raw provider response
+                        if self.verbose:
+                            raw = result.get("response")
+                            print("    --- Raw provider response begin ---")
+                            try:
+                                print(json.dumps(raw, indent=2, ensure_ascii=False))
+                            except Exception:
+                                try:
+                                    print(str(raw))
+                                except Exception:
+                                    print(repr(raw))
+                            print("    --- Raw provider response end ---")
                     else:
                         if is_openrouter and provider is not None:
                             print(f"    [PASS] Test '{test_id}' passed for provider [{provider}]")
@@ -384,6 +465,8 @@ def run_coherency_tests(
     test_prompts: List[Dict[str, str]] = None,
     openrouter_only: Optional[List[str]] = None,
     num_workers: int = 4,
+    request_overrides: Optional[Dict[str, Any]] = None,
+    verbose: bool = False,
 ) -> Tuple[bool, List[str]]:
     """
     Run coherency tests and return simple pass/fail results.
@@ -403,6 +486,8 @@ def run_coherency_tests(
         test_prompts=test_prompts,
         num_workers=num_workers,
         allowed_subproviders=openrouter_only,
+        request_overrides=request_overrides,
+        verbose=verbose,
     )
 
     results = tester.run_tests()

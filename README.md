@@ -9,7 +9,7 @@ A clean, modular client library for interacting with various LLM providers (Open
 - **Robust Error Handling**: Clear distinction between retryable and permanent errors
 - **Automatic Retries**: Configurable retry mechanism with exponential backoff
 - **Context Passing**: Support for passing context through requests for multi-threaded usage
-- **Coherency Testing**: Framework for testing model coherency
+- **Coherency Testing (OpenRouter)**: Sub‑provider gating to automatically exclude failing endpoints; optionally enforces reasoning/"thinking" output
 
 ## Supported Providers
 
@@ -96,24 +96,57 @@ response = retry_request(
 
 ## Coherency Testing
 
+The coherency tester works with any provider, but it is primarily useful for OpenRouter.
+
+- OpenRouter: a single model can have multiple sub‑providers. The tester enumerates sub‑providers, runs a small prompt suite for each, and reports which sub‑providers passed or failed so you can build an `ignore_list` for production calls.
+- Other providers: the tester runs the same prompt suite once and returns a simple pass/fail summary for that provider/model pair (no sub‑provider breakdown).
+
+It also supports optional reasoning enforcement: when you pass a `reasoning` override, the tester will fail providers that don’t return thinking output when enabled, or that return thinking when disabled.
+
 ```python
+from llm_client import get_provider, retry_request
 from llm_client.testing import run_coherency_tests
 
-# Run coherency tests
+model_id = "qwen/qwen3-next-80b-a3b-thinking"  # example OpenRouter model
+
+# Optional: enforce reasoning behavior during testing
+# Use either max_tokens OR effort (not both)
+request_overrides = {
+    "reasoning": {
+        "enabled": True,
+        "max_tokens": 2048,
+        # "effort": "medium",  # alternative to max_tokens
+    }
+}
+
+# Run coherency tests against all available sub‑providers
 success, failed_providers = run_coherency_tests(
-    target_model_id="gpt-4o-2024-08-06",
-    target_provider_name="openai",
-    num_workers=4  # Run tests in parallel
+    target_model_id=model_id,
+    target_provider_name="openrouter",
+    num_workers=4,
+    request_overrides=request_overrides,
+    # verbose=True,  # optional: dump raw responses on failures
 )
 
-if success:
-    print("All coherency tests passed!")
+if not success:
+    print("No sub‑provider passed all tests; consider retrying later.")
+
+# When making real requests, avoid failing providers
+provider = get_provider("openrouter")
+messages = [{"role": "user", "content": "Write a limerick about databases."}]
+
+response = retry_request(
+    provider=provider,
+    messages=messages,
+    model_id=model_id,
+    ignore_list=failed_providers,    # exclude failing sub‑providers
+    **request_overrides,
+)
+
+if response.success:
+    print(response.standardized_response.get("content", "<no content>"))
 else:
-    print("Some coherency tests failed.")
-    
-# For OpenRouter, get list of providers that failed
-if target_provider_name == "openrouter" and failed_providers:
-    print(f"These providers failed: {', '.join(failed_providers)}")
+    print(f"Error: {response.error_info and response.error_info.get('message')}")
 ```
 
 ## Advanced Usage

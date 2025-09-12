@@ -23,6 +23,8 @@ PROVIDER_MAP = {
     "tngtech": TNGTechProvider,
 }
 
+__version__ = "0.1.8"
+
 def get_provider(provider_name):
     """
     Get a provider instance by name.
