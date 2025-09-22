@@ -9,9 +9,14 @@ Usage:
   python examples/coherency_check.py --model qwen/qwen3-next-80b-a3b-thinking \
       --workers 6 --reasoning --reasoning-tokens 2048
 
+  # Force a specific OpenRouter sub‑provider (may repeat the flag)
+  python examples/coherency_check.py --model deepseek/deepseek-chat-v3.1 \
+      --force-subprovider deepseek --reasoning --workers 4 --verbose
+
 Notes:
   - --reasoning and --no-reasoning are mutually exclusive.
   - Specify at most one of --reasoning-tokens or --reasoning-effort.
+  - --force-subprovider is only valid with OpenRouter targets.
 """
 import argparse
 import sys
@@ -28,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", required=True, help="OpenRouter model id (e.g., qwen/qwen3-next-80b-a3b-thinking)")
     p.add_argument("--workers", type=int, default=4, help="Number of concurrent workers")
     p.add_argument("--verbose", action="store_true", help="Verbose mode: dump full raw responses on failures")
+    p.add_argument(
+        "--force-subprovider",
+        dest="force_subproviders",
+        action="append",
+        help="Force one OpenRouter sub‑provider (may be repeated). Only valid with OpenRouter.",
+    )
 
     # Reasoning controls (mutually exclusive enable/disable)
     group = p.add_mutually_exclusive_group()
@@ -65,13 +76,20 @@ def main(argv=None) -> int:
     if reasoning_cfg:
         request_overrides["reasoning"] = reasoning_cfg
 
+    # Safety: --force-subprovider only valid when using OpenRouter
+    if args.force_subproviders and len(args.force_subproviders) > 0:
+        target_provider = "openrouter"
+        if target_provider.lower() != "openrouter":
+            print("ERROR: --force-subprovider is only supported with OpenRouter.", file=sys.stderr)
+            return 2
+
     # Set up tester and run
     tester = CoherencyTester(
         target_provider_name="openrouter",
         target_model_id=args.model,
         num_workers=args.workers,
         test_prompts=None,
-        allowed_subproviders=None,
+        allowed_subproviders=args.force_subproviders if args.force_subproviders else None,
         request_overrides=request_overrides if request_overrides else None,
         verbose=bool(args.verbose),
     )
@@ -85,6 +103,8 @@ def main(argv=None) -> int:
     print("\n=== Coherency Results ===")
     print(f"Model: {args.model}")
     print(f"Workers: {args.workers}")
+    if args.force_subproviders:
+        print(f"Forced sub‑providers: {', '.join(args.force_subproviders)}")
     if reasoning_cfg:
         print(f"Reasoning config: {reasoning_cfg}")
     else:

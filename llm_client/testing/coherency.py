@@ -72,18 +72,39 @@ class CoherencyTester:
         self.target_provider = get_provider(target_provider_name)
         self.judge_provider = get_provider(judge_provider_name)
 
+        # If the caller tries to force subproviders on a non-OpenRouter provider, error clearly
+        if self.allowed_subproviders and target_provider_name.lower() != "openrouter":
+            raise ValueError("allowed_subproviders is only supported when target_provider_name is 'openrouter'")
+
         # OpenRouter subproviders (optional)
+        # If the caller specifies allowed_subproviders, treat that as authoritative for testing
+        # and do not silently fall back to unconstrained routing when OpenRouter's endpoint
+        # listing does not include them. This ensures forced providers are actually tested
+        # (and will fail explicitly if unavailable), instead of passing via a different provider.
         self.openrouter_providers: Optional[List[str]] = None
         if target_provider_name.lower() == "openrouter":
-            try:
-                providers = self.target_provider.get_available_providers(target_model_id)
-                if providers:
-                    if self.allowed_subproviders:
-                        allowed_set = {p.strip().casefold() for p in self.allowed_subproviders if p}
-                        providers = [p for p in providers if p and p.strip().casefold() in allowed_set]
+            if self.allowed_subproviders:
+                # Use the caller-provided list verbatim for scheduling/tests
+                self.openrouter_providers = [p for p in self.allowed_subproviders if p]
+                # Best-effort: fetch available providers to warn about mismatches, but do not filter
+                try:
+                    available = self.target_provider.get_available_providers(target_model_id) or []
+                    missing = [p for p in self.openrouter_providers if p not in (available or [])]
+                    if missing:
+                        print(
+                            "Warning: Requested OpenRouter subproviders not reported as available: "
+                            + ", ".join(missing),
+                            file=sys.stderr,
+                        )
+                except Exception as e:
+                    print(f"Warning: Unable to fetch OpenRouter providers: {str(e)}", file=sys.stderr)
+            else:
+                # No explicit allow-list: use what OpenRouter reports
+                try:
+                    providers = self.target_provider.get_available_providers(target_model_id) or []
                     self.openrouter_providers = providers
-            except Exception as e:
-                print(f"Warning: Unable to fetch OpenRouter providers: {str(e)}", file=sys.stderr)
+                except Exception as e:
+                    print(f"Warning: Unable to fetch OpenRouter providers: {str(e)}", file=sys.stderr)
 
     # --------------------------- Judge helpers ---------------------------
 
@@ -296,7 +317,9 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
         """
         Run coherency tests using a single global worker pool.
         """
-        is_openrouter = self.target_provider_name.lower() == "openrouter" and bool(self.openrouter_providers)
+        # Treat as OpenRouter testing mode whenever we're targeting OpenRouter and we have
+        # a defined provider list (possibly provided by the caller), even if empty.
+        is_openrouter = self.target_provider_name.lower() == "openrouter" and (self.openrouter_providers is not None)
 
         if is_openrouter:
             providers = self.openrouter_providers or []
