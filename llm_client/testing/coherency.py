@@ -217,8 +217,15 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                             return True
                 # Check usage-level reasoning token accounting
                 usage = raw.get("usage") or {}
-                rt = usage.get("reasoning_tokens")
-                if isinstance(rt, (int, float)) and rt > 0:
+                # Portable OpenRouter pattern: usage.completion_tokens_details.reasoning_tokens
+                ctd = usage.get("completion_tokens_details")
+                if isinstance(ctd, dict):
+                    rt = ctd.get("reasoning_tokens")
+                    if isinstance(rt, (int, float)) and rt > 0:
+                        return True
+                # Legacy/simple pattern: usage.reasoning_tokens (if ever exposed)
+                rt_legacy = usage.get("reasoning_tokens")
+                if isinstance(rt_legacy, (int, float)) and rt_legacy > 0:
                     return True
                 # Fallback: top-level
                 rtop = raw.get("reasoning")
