@@ -1,6 +1,6 @@
 # LLM Client Library
 
-A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google) with standardized responses and robust error handling.
+A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google, X.AI) with standardized responses and robust error handling.
 
 ## Features
 
@@ -18,6 +18,7 @@ A clean, modular client library for interacting with various LLM providers (Open
 - Fireworks AI
 - Chutes
 - Google (Gemini models)
+- X.AI (OpenAI-compatible)
 
 ## Installation
 
@@ -38,6 +39,7 @@ export OPENROUTER_API_KEY="your-openrouter-key"
 export FIREWORKS_API_KEY="your-fireworks-key"
 export CHUTES_API_TOKEN="your-chutes-token"
 export GEMINI_API_KEY="your-gemini-key"
+export XAI_API_KEY="your-xai-key"
 ```
 
 ## Basic Usage

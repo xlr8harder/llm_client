@@ -7,6 +7,7 @@ from .fireworks import FireworksProvider
 from .chutes import ChutesProvider
 from .google import GoogleProvider
 from .tngtech import TNGTechProvider
+from .xai import XAIProvider
 
 __all__ = [
     'OpenAIProvider',
@@ -15,4 +16,5 @@ __all__ = [
     'ChutesProvider',
     'GoogleProvider',
     'TNGTechProvider',
+    'XAIProvider',
 ]

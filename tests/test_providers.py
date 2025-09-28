@@ -13,7 +13,7 @@ import requests
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from llm_client import get_provider, LLMResponse
-from llm_client.providers import OpenAIProvider, OpenRouterProvider, GoogleProvider, TNGTechProvider
+from llm_client.providers import OpenAIProvider, OpenRouterProvider, GoogleProvider, TNGTechProvider, XAIProvider
 
 
 class TestProviders(unittest.TestCase):
@@ -29,6 +29,7 @@ class TestProviders(unittest.TestCase):
             'CHUTES_API_TOKEN': 'mock-chutes-token',
             'GEMINI_API_KEY': 'mock-gemini-key',
             'TNGTECH_API_KEY': 'mock-tngtech-key',
+            'XAI_API_KEY': 'mock-xai-key',
         })
         self.env_patcher.start()
         
@@ -39,7 +40,7 @@ class TestProviders(unittest.TestCase):
     def test_provider_factory(self):
         """Test the provider factory function"""
         # Test all providers
-        provider_names = ["openai", "openrouter", "fireworks", "chutes", "google", "tngtech"]
+        provider_names = ["openai", "openrouter", "fireworks", "chutes", "google", "tngtech", "xai"]
         for name in provider_names:
             provider = get_provider(name)
             self.assertIsNotNone(provider)
@@ -64,6 +65,46 @@ class TestProviders(unittest.TestCase):
             fresh_provider = OpenAIProvider()
             with self.assertRaises(ValueError):
                 fresh_provider.get_api_key()
+
+    @patch('requests.post')
+    def test_xai_successful_request(self, mock_post):
+        """Test successful X.AI request (OpenAI-compatible)"""
+        # Mock the response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-xai-123",
+            "object": "chat.completion",
+            "created": 1677858242,
+            "model": "grok-2-latest",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello from X.AI"
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 5,
+                "total_tokens": 10
+            }
+        }
+        mock_post.return_value = mock_response
+
+        provider = get_provider("xai")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_id="grok-2-latest"
+        )
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.standardized_response["content"], "Hello from X.AI")
+        self.assertEqual(response.standardized_response["model"], "grok-2-latest")
+        self.assertEqual(response.standardized_response["provider"], "xai")
 
     @patch('requests.post')
     def test_tngtech_successful_request(self, mock_post):

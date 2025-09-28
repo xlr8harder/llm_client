@@ -11,6 +11,7 @@ from .providers import (
     ChutesProvider,
     GoogleProvider,
     TNGTechProvider,
+    XAIProvider,
 )
 
 # Convenient mapping of provider names to their implementations
@@ -21,9 +22,10 @@ PROVIDER_MAP = {
     "chutes": ChutesProvider,
     "google": GoogleProvider,
     "tngtech": TNGTechProvider,
+    "xai": XAIProvider,
 }
 
-__version__ = "0.1.10"
+__version__ = "0.1.11"
 
 def get_provider(provider_name):
     """
@@ -55,4 +57,5 @@ __all__ = [
     'ChutesProvider',
     'GoogleProvider',
     'TNGTechProvider',
+    'XAIProvider',
 ]
