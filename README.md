@@ -1,5 +1,7 @@
 # LLM Client Library
 
+## Warning: Vibe-coded.
+
 A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google, X.AI) with standardized responses and robust error handling.
 
 ## Features
