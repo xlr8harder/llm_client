@@ -92,12 +92,16 @@ def main(argv=None) -> int:
         allowed_subproviders=args.force_subproviders if args.force_subproviders else None,
         request_overrides=request_overrides if request_overrides else None,
         verbose=bool(args.verbose),
+        print_summary=False,
     )
 
     results = tester.run_tests()
 
     passed = results.get("passed_providers", [])
     failed = results.get("failed_providers", [])
+    failed_errors = results.get("failed_providers_errors", [])
+    failed_reasoning = results.get("failed_providers_reasoning", [])
+    failed_coherency = results.get("failed_providers_coherency", [])
 
     # Report
     print("\n=== Coherency Results ===")
@@ -112,6 +116,10 @@ def main(argv=None) -> int:
 
     print(f"\nGood providers ({len(passed)}): {', '.join(passed) if passed else '<none>'}")
     print(f"Bad providers  ({len(failed)}): {', '.join(failed) if failed else '<none>'}")
+    if failed:
+        print(f"  - Provider errors/blocking ({len(failed_errors)}): {', '.join(failed_errors) if failed_errors else '<none>'}")
+        print(f"  - Reasoning fails ({len(failed_reasoning)}): {', '.join(failed_reasoning) if failed_reasoning else '<none>'}")
+        print(f"  - Incoherent (judge NO) ({len(failed_coherency)}): {', '.join(failed_coherency) if failed_coherency else '<none>'}")
 
     if failed:
         print("\nTip: exclude bad providers using ignore_list when calling retry_request.")
