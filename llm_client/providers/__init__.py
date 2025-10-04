@@ -8,6 +8,7 @@ from .chutes import ChutesProvider
 from .google import GoogleProvider
 from .tngtech import TNGTechProvider
 from .xai import XAIProvider
+from .moonshot import MoonshotProvider
 
 __all__ = [
     'OpenAIProvider',
@@ -17,4 +18,5 @@ __all__ = [
     'GoogleProvider',
     'TNGTechProvider',
     'XAIProvider',
+    'MoonshotProvider',
 ]

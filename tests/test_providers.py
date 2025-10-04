@@ -13,7 +13,14 @@ import requests
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from llm_client import get_provider, LLMResponse
-from llm_client.providers import OpenAIProvider, OpenRouterProvider, GoogleProvider, TNGTechProvider, XAIProvider
+from llm_client.providers import (
+    OpenAIProvider,
+    OpenRouterProvider,
+    GoogleProvider,
+    TNGTechProvider,
+    XAIProvider,
+    MoonshotProvider,
+)
 
 
 class TestProviders(unittest.TestCase):
@@ -30,6 +37,7 @@ class TestProviders(unittest.TestCase):
             'GEMINI_API_KEY': 'mock-gemini-key',
             'TNGTECH_API_KEY': 'mock-tngtech-key',
             'XAI_API_KEY': 'mock-xai-key',
+            'MOONSHOT_API_KEY': 'mock-moonshot-key',
         })
         self.env_patcher.start()
         
@@ -40,7 +48,16 @@ class TestProviders(unittest.TestCase):
     def test_provider_factory(self):
         """Test the provider factory function"""
         # Test all providers
-        provider_names = ["openai", "openrouter", "fireworks", "chutes", "google", "tngtech", "xai"]
+        provider_names = [
+            "openai",
+            "openrouter",
+            "fireworks",
+            "chutes",
+            "google",
+            "tngtech",
+            "xai",
+            "moonshot",
+        ]
         for name in provider_names:
             provider = get_provider(name)
             self.assertIsNotNone(provider)
@@ -48,6 +65,8 @@ class TestProviders(unittest.TestCase):
         # Test case insensitivity
         provider = get_provider("OpenAI")
         self.assertIsInstance(provider, OpenAIProvider)
+        provider = get_provider("Moonshot")
+        self.assertIsInstance(provider, MoonshotProvider)
         
         # Test invalid provider
         with self.assertRaises(ValueError):
@@ -58,7 +77,10 @@ class TestProviders(unittest.TestCase):
         # Test each provider gets its key correctly
         openai_provider = get_provider("openai")
         self.assertEqual(openai_provider.get_api_key(), "mock-openai-key")
-        
+
+        moonshot_provider = get_provider("moonshot")
+        self.assertEqual(moonshot_provider.get_api_key(), "mock-moonshot-key")
+
         # Test missing API key with a fresh provider instance
         with patch.dict('os.environ', {'OPENAI_API_KEY': ''}):
             # Create a fresh provider instance to avoid cached keys
@@ -105,6 +127,45 @@ class TestProviders(unittest.TestCase):
         self.assertEqual(response.standardized_response["content"], "Hello from X.AI")
         self.assertEqual(response.standardized_response["model"], "grok-2-latest")
         self.assertEqual(response.standardized_response["provider"], "xai")
+
+    @patch('requests.post')
+    def test_moonshot_successful_request(self, mock_post):
+        """Test successful Moonshot request (OpenAI-compatible)"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-moonshot-123",
+            "object": "chat.completion",
+            "created": 1677858242,
+            "model": "moonshot-v1",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello from Moonshot"
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 4,
+                "completion_tokens": 6,
+                "total_tokens": 10
+            }
+        }
+        mock_post.return_value = mock_response
+
+        provider = get_provider("moonshot")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_id="moonshot-v1"
+        )
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.standardized_response["content"], "Hello from Moonshot")
+        self.assertEqual(response.standardized_response["model"], "moonshot-v1")
+        self.assertEqual(response.standardized_response["provider"], "moonshot")
 
     @patch('requests.post')
     def test_tngtech_successful_request(self, mock_post):

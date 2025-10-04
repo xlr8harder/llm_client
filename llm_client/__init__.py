@@ -12,6 +12,7 @@ from .providers import (
     GoogleProvider,
     TNGTechProvider,
     XAIProvider,
+    MoonshotProvider,
 )
 
 # Convenient mapping of provider names to their implementations
@@ -23,9 +24,10 @@ PROVIDER_MAP = {
     "google": GoogleProvider,
     "tngtech": TNGTechProvider,
     "xai": XAIProvider,
+    "moonshot": MoonshotProvider,
 }
 
-__version__ = "0.1.12"
+__version__ = "0.1.13"
 
 def get_provider(provider_name):
     """
@@ -58,4 +60,5 @@ __all__ = [
     'GoogleProvider',
     'TNGTechProvider',
     'XAIProvider',
+    'MoonshotProvider',
 ]
