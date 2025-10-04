@@ -222,6 +222,49 @@ class TestRetryMechanism(unittest.TestCase):
         # Second retry should use initial_delay * backoff_factor (2 * 3 = 6)
         self.assertAlmostEqual(calls[1][0][0], 6, places=1)
 
+    def test_retry_quiet_by_default(self):
+        """Ensure retry_request does not log when verbose is False."""
+        responses = [
+            LLMResponse(success=False, error_info={"message": "Retry me"}, is_retryable=True),
+            LLMResponse(success=True, standardized_response={"content": "Done"}),
+        ]
+        provider = MockProvider(responses=responses)
+        mock_logger = MagicMock()
+
+        retry_request(
+            provider=provider,
+            messages=[{"role": "user", "content": "ping"}],
+            model_id="test-model",
+            max_retries=2,
+            initial_delay=1,
+            jitter=0,
+            logger=mock_logger,
+        )
+
+        mock_logger.info.assert_not_called()
+
+    def test_retry_verbose_outputs_logs(self):
+        """Ensure retry_request logs progress when verbose is True."""
+        responses = [
+            LLMResponse(success=False, error_info={"message": "Retry me"}, is_retryable=True),
+            LLMResponse(success=True, standardized_response={"content": "Done"}),
+        ]
+        provider = MockProvider(responses=responses)
+        mock_logger = MagicMock()
+
+        retry_request(
+            provider=provider,
+            messages=[{"role": "user", "content": "ping"}],
+            model_id="test-model",
+            max_retries=2,
+            initial_delay=1,
+            jitter=0,
+            verbose=True,
+            logger=mock_logger,
+        )
+
+        mock_logger.info.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()
