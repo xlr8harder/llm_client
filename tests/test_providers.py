@@ -21,6 +21,7 @@ from llm_client.providers import (
     XAIProvider,
     MoonshotProvider,
 )
+from llm_client.providers.openai_style import OpenAIStyleProvider
 
 
 class TestProviders(unittest.TestCase):
@@ -314,6 +315,58 @@ class TestProviders(unittest.TestCase):
         self.assertFalse(response.success)
         self.assertTrue(response.is_retryable)  # Timeouts are retryable
         self.assertEqual(response.error_info["type"], "timeout")
+
+    @patch('requests.post')
+    def test_openai_style_customizable_subclass(self, mock_post):
+        """Ensure subclasses can override headers and defaults."""
+
+        class DemoProvider(OpenAIStyleProvider):
+            api_base = "https://example.test/v1"
+            api_key_env_var = "DEMO_API_KEY"
+            provider_name = "demo"
+            default_max_tokens = 77
+
+            def _build_request_headers(self):
+                headers = super()._build_request_headers()
+                headers["X-Custom"] = "demo"
+                return headers
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-demo-1",
+            "object": "chat.completion",
+            "created": 123,
+            "model": "demo-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "demo reply"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        mock_post.return_value = mock_response
+
+        with patch.dict('os.environ', {"DEMO_API_KEY": "demo-key"}):
+            provider = DemoProvider()
+            response = provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "hello"}],
+                model_id="demo-model",
+            )
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.standardized_response["content"], "demo reply")
+        self.assertEqual(response.standardized_response["provider"], "demo")
+
+        _, kwargs = mock_post.call_args
+        self.assertEqual(kwargs["url"], "https://example.test/v1/chat/completions")
+        self.assertEqual(kwargs["headers"]["X-Custom"], "demo")
+
+        payload = json.loads(kwargs["data"])
+        self.assertEqual(payload["max_tokens"], 77)
+        self.assertEqual(payload["model"], "demo-model")
         
     @patch('requests.post')
     def test_openrouter_provider_filtering(self, mock_post):
