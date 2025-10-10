@@ -153,6 +153,37 @@ else:
     print(f"Error: {response.error_info and response.error_info.get('message')}")
 ```
 
+## Streaming Transport
+
+Some providers support server-sent events (SSE) streaming for long generations. This library exposes a streaming transport that keeps the HTTP connection active and aggregates streamed chunks into a single final result, preserving the existing `LLMResponse` interface.
+
+- Enable it via the request option `transport='stream'`.
+- Do not pass `stream=True` directly; the client will reject it. This library does not expose token-by-token streaming to the caller.
+
+Example:
+
+```python
+from llm_client import get_provider, retry_request
+
+provider = get_provider("openrouter")  # or "openai", "xai", etc.
+messages = [{"role": "user", "content": "Write a long answer..."}]
+
+resp = retry_request(
+    provider=provider,
+    messages=messages,
+    model_id="openai/gpt-4o-2024-08-06",
+    transport="stream",       # use SSE under the hood, but return one final response
+    timeout=(10, 300),         # optional: tolerate slow token gaps
+)
+
+if resp.success:
+    print(resp.standardized_response["content"])  # aggregated content
+else:
+    print(f"Error: {resp.error_info['message']}")
+```
+
+If you accidentally pass `stream=True` without `transport='stream'`, the providers return a non‑retryable error with type `invalid_option`. This ensures callers don’t mistakenly expect token‑level streaming, which the library doesn’t provide.
+
 ## Advanced Usage
 
 See the `examples` directory for more complex usage examples.

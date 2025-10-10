@@ -43,6 +43,24 @@ class OpenAIStyleProvider(LLMProvider):
         timeout = options.pop("timeout", self.default_timeout)
         max_tokens = options.pop("max_tokens", self.default_max_tokens)
 
+        # Opt-in streaming transport that returns a final aggregated response.
+        # Supported interface: transport='stream'.
+        # If the caller provides stream=True without transport='stream', raise an error
+        # because we don't expose token-by-token streaming.
+        transport = options.pop("transport", None)
+        user_stream_flag = options.pop("stream", None)
+        if user_stream_flag and transport != "stream":
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "invalid_option",
+                    "message": "Direct stream=True is not supported. Use transport='stream' to enable streaming transport with aggregated output.",
+                },
+                is_retryable=False,
+                context=context,
+            )
+        use_stream_transport = transport == "stream"
+
         data: Dict[str, Any] = {
             "model": model_id,
             "messages": messages,
@@ -51,16 +69,29 @@ class OpenAIStyleProvider(LLMProvider):
         if options:
             data.update(options)
 
+        # If using streaming transport, set provider stream flag (we manage this internally)
+        if use_stream_transport:
+            data["stream"] = True
+
         try:
+            headers = self._build_request_headers()
+            if use_stream_transport:
+                # Hint for SSE responses; most OpenAI-compatible APIs ignore if not needed
+                headers = {**headers, "Accept": "text/event-stream"}
+
             response = requests.post(
                 url=f"{self._get_api_base()}/chat/completions",
-                headers=self._build_request_headers(),
+                headers=headers,
                 data=json.dumps(data),
                 timeout=timeout,
+                stream=use_stream_transport,
             )
 
             if response.status_code != 200:
                 return self._handle_error_response(response, context)
+
+            if use_stream_transport:
+                return self._consume_streaming_response(response, context)
 
             raw_response = response.json()
 
@@ -194,3 +225,120 @@ class OpenAIStyleProvider(LLMProvider):
             standardized["finish_reason"] = choice.get("finish_reason")
 
         return standardized
+
+    def _consume_streaming_response(self, response, context) -> LLMResponse:
+        """
+        Consume an OpenAI-compatible SSE response, aggregate content, and return a final LLMResponse.
+        """
+        try:
+            aggregated_content: str = ""
+            last_event: Optional[Dict[str, Any]] = None
+            finish_reason: Optional[str] = None
+            model: Optional[str] = None
+            resp_id: Optional[str] = None
+            created: Optional[int] = None
+
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if not raw_line:
+                    continue
+                line = raw_line.strip()
+                if line.startswith("data:"):
+                    line = line[len("data:"):].strip()
+                if line == "[DONE]":
+                    break
+                # Some servers may send comments or keepalives starting with ':'
+                if line.startswith(":"):
+                    continue
+
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    # Skip unparsable chunks; treat as transient noise
+                    continue
+
+                last_event = event
+                resp_id = event.get("id", resp_id)
+                created = event.get("created", created)
+                model = event.get("model", model)
+
+                # OpenAI-style streaming puts text deltas under choices[].delta.content
+                try:
+                    choices = event.get("choices") or []
+                    if choices:
+                        choice0 = choices[0]
+                        finish_reason = choice0.get("finish_reason", finish_reason)
+                        delta = choice0.get("delta") or {}
+                        content_piece = delta.get("content")
+                        if content_piece:
+                            aggregated_content += content_piece
+                        # Some providers might stream full messages per chunk
+                        if not content_piece and isinstance(choice0.get("message"), dict):
+                            msg_content = choice0["message"].get("content")
+                            if msg_content:
+                                aggregated_content += msg_content
+                except Exception:
+                    # Continue on minor schema oddities
+                    pass
+
+                # Content filter surfaced mid-stream
+                if self._has_content_filter_error(event):
+                    err = self._extract_content_filter_error(event)
+                    return LLMResponse(
+                        success=False,
+                        error_info=err,
+                        raw_provider_response=event,
+                        is_retryable=False,
+                        context=context,
+                    )
+
+            standardized = {
+                "id": resp_id,
+                "created": created,
+                "model": model,
+                "provider": self._get_provider_name(),
+                "content": aggregated_content,
+                "finish_reason": finish_reason or "stop",
+                "usage": (last_event or {}).get("usage", {}),
+            }
+
+            return LLMResponse(
+                success=True,
+                standardized_response=standardized,
+                raw_provider_response=last_event,
+                is_retryable=False,
+                context=context,
+            )
+        except requests.exceptions.Timeout as e:
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "timeout",
+                    "message": str(e),
+                    "exception": str(e),
+                },
+                is_retryable=True,
+                context=context,
+            )
+        except requests.exceptions.RequestException as e:
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "network_error",
+                    "message": str(e),
+                    "exception": str(e),
+                    "status_code": e.response.status_code if getattr(e, "response", None) else None,
+                },
+                is_retryable=True,
+                context=context,
+            )
+        except Exception as e:
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "unexpected_error",
+                    "message": str(e),
+                    "exception": str(e),
+                },
+                is_retryable=True,
+                context=context,
+            )

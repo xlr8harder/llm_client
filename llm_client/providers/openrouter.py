@@ -39,6 +39,19 @@ class OpenRouterProvider(LLMProvider):
             }
             
             timeout = options.pop('timeout', 60)
+            transport = options.pop('transport', None)
+            user_stream_flag = options.pop('stream', None)
+            if user_stream_flag and transport != 'stream':
+                return LLMResponse(
+                    success=False,
+                    error_info={
+                        'type': 'invalid_option',
+                        'message': "Direct stream=True is not supported. Use transport='stream' to enable streaming transport with aggregated output.",
+                    },
+                    is_retryable=False,
+                    context=context,
+                )
+            use_stream_transport = transport == 'stream'
             
             data = {
                 "model": model_id,
@@ -64,20 +77,33 @@ class OpenRouterProvider(LLMProvider):
                 
             if provider_routing:
                 data["provider"] = provider_routing
-            
+
             # Remaining options passthrough
             data.update(options)
+
+            # Ensure provider gets stream=True if we are using streaming transport
+            if use_stream_transport:
+                data["stream"] = True
             
+            # For streaming, request SSE and stream the HTTP response
+            req_headers = dict(headers)
+            if use_stream_transport:
+                req_headers["Accept"] = "text/event-stream"
+
             response = requests.post(
                 url=url, 
-                headers=headers, 
+                headers=req_headers, 
                 data=json.dumps(data), 
-                timeout=timeout
+                timeout=timeout,
+                stream=use_stream_transport,
             )
             
             if response.status_code != 200:
                 return self._handle_error_response(response, context)
                 
+            if use_stream_transport:
+                return self._consume_streaming_response(response, context)
+
             raw_response = response.json()
             standardized_response = self._standardize_response(raw_response)
             
@@ -132,6 +158,115 @@ class OpenRouterProvider(LLMProvider):
                 },
                 is_retryable=False,
                 context=context
+            )
+    
+    def _consume_streaming_response(self, response, context):
+        """Consume OpenRouter SSE stream (OpenAI-compatible) and build final response."""
+        try:
+            import json as _json
+            aggregated = ""
+            last_event = None
+            finish_reason = None
+            model = None
+            resp_id = None
+            created = None
+
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if not raw_line:
+                    continue
+                line = raw_line.strip()
+                if line.startswith("data:"):
+                    line = line[len("data:"):].strip()
+                if line == "[DONE]":
+                    break
+                if line.startswith(":"):
+                    continue
+                try:
+                    evt = _json.loads(line)
+                except Exception:
+                    continue
+
+                last_event = evt
+                resp_id = evt.get("id", resp_id)
+                created = evt.get("created", created)
+                model = evt.get("model", model)
+
+                try:
+                    choices = evt.get("choices") or []
+                    if choices:
+                        c0 = choices[0]
+                        finish_reason = c0.get("finish_reason", finish_reason)
+                        delta = c0.get("delta") or {}
+                        piece = delta.get("content")
+                        if piece:
+                            aggregated += piece
+                        if not piece and isinstance(c0.get("message"), dict):
+                            msg_piece = c0["message"].get("content")
+                            if msg_piece:
+                                aggregated += msg_piece
+                except Exception:
+                    pass
+
+                if self._has_content_filter_error(evt):
+                    err = self._extract_content_filter_error(evt)
+                    return LLMResponse(
+                        success=False,
+                        error_info=err,
+                        raw_provider_response=evt,
+                        is_retryable=False,
+                        context=context,
+                    )
+
+            standardized = {
+                "id": resp_id,
+                "created": created,
+                "model": model,
+                "provider": "openrouter",
+                "content": aggregated,
+                "finish_reason": finish_reason or "stop",
+                "usage": (last_event or {}).get("usage", {}),
+            }
+
+            return LLMResponse(
+                success=True,
+                standardized_response=standardized,
+                raw_provider_response=last_event,
+                is_retryable=False,
+                context=context,
+            )
+        except requests.exceptions.Timeout as e:
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "timeout",
+                    "message": str(e),
+                    "exception": str(e),
+                },
+                is_retryable=True,
+                context=context,
+            )
+        except requests.exceptions.RequestException as e:
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "network_error",
+                    "message": str(e),
+                    "exception": str(e),
+                    "status_code": e.response.status_code if hasattr(e, 'response') and e.response else None,
+                },
+                is_retryable=True,
+                context=context,
+            )
+        except Exception as e:
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "unexpected_error",
+                    "message": str(e),
+                    "exception": str(e),
+                },
+                is_retryable=True,
+                context=context,
             )
     
     def _handle_error_response(self, response, context):
