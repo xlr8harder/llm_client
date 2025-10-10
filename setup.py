@@ -26,6 +26,6 @@ setup(
     ],
     python_requires=">=3.7",
     install_requires=[
-        "requests>=2.25.0",
+        "urllib3>=1.26.0",
     ],
 )

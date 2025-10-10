@@ -50,18 +50,22 @@ class TestStreamingTransport(unittest.TestCase):
         self.assertIn('transport', res.error_info.get('message', ''))
         mock_post.assert_not_called()
 
-    @patch('requests.post')
-    def test_openai_streaming_aggregates_chunks(self, mock_post):
-        # Mock a streaming SSE response
-        sse_lines = [
-            'data: {"id":"s1","object":"chat.completion.chunk","created":1,"model":"gpt-4o-2024-08-06","choices":[{"delta":{"content":"Hello "},"index":0}]}' ,
-            'data: {"id":"s1","object":"chat.completion.chunk","created":1,"model":"gpt-4o-2024-08-06","choices":[{"delta":{"content":"world"},"index":0,"finish_reason":"stop"}]}' ,
-            'data: [DONE]'
-        ]
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.iter_lines.return_value = sse_lines
-        mock_post.return_value = mock_resp
+    @patch('urllib3.PoolManager.request')
+    def test_openai_streaming_aggregates_chunks(self, mock_request):
+        # Mock a streaming SSE response via urllib3
+        class FakeU3Resp:
+            status = 200
+            def stream(self, amt=65536, decode_content=True):
+                lines = [
+                    b'data: {"id":"s1","object":"chat.completion.chunk","created":1,"model":"gpt-4o-2024-08-06","choices":[{"delta":{"content":"Hello "},"index":0}]}\n',
+                    b'data: {"id":"s1","object":"chat.completion.chunk","created":1,"model":"gpt-4o-2024-08-06","choices":[{"delta":{"content":"world"},"index":0,"finish_reason":"stop"}]}\n',
+                    b'data: [DONE]\n',
+                ]
+                for b in lines:
+                    yield b
+            def close(self):
+                return None
+        mock_request.return_value = FakeU3Resp()
 
         provider = get_provider("openai")
         res = provider.make_chat_completion_request(
@@ -72,22 +76,23 @@ class TestStreamingTransport(unittest.TestCase):
 
         self.assertTrue(res.success)
         self.assertEqual(res.standardized_response.get('content'), 'Hello world')
-        # Ensure we asked requests to stream
-        args, kwargs = mock_post.call_args
-        self.assertTrue(kwargs.get('stream'))
 
-    @patch('requests.post')
-    def test_openrouter_streaming_aggregates_chunks(self, mock_post):
-        sse_lines = [
-            'data: {"id":"s2","object":"chat.completion.chunk","created":1,"model":"gpt-4o-mini","choices":[{"delta":{"content":"The ","role":"assistant"},"index":0}]}' ,
-            'data: {"id":"s2","object":"chat.completion.chunk","created":1,"model":"gpt-4o-mini","choices":[{"delta":{"content":"answer"},"index":0}]}' ,
-            'data: {"id":"s2","object":"chat.completion.chunk","created":1,"model":"gpt-4o-mini","choices":[{"delta":{},"index":0,"finish_reason":"stop"}]}' ,
-            'data: [DONE]'
-        ]
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.iter_lines.return_value = sse_lines
-        mock_post.return_value = mock_resp
+    @patch('urllib3.PoolManager.request')
+    def test_openrouter_streaming_aggregates_chunks(self, mock_request):
+        class FakeU3Resp:
+            status = 200
+            def stream(self, amt=65536, decode_content=True):
+                lines = [
+                    b'data: {"id":"s2","object":"chat.completion.chunk","created":1,"model":"gpt-4o-mini","choices":[{"delta":{"content":"The ","role":"assistant"},"index":0}]}\n',
+                    b'data: {"id":"s2","object":"chat.completion.chunk","created":1,"model":"gpt-4o-mini","choices":[{"delta":{"content":"answer"},"index":0}]}\n',
+                    b'data: {"id":"s2","object":"chat.completion.chunk","created":1,"model":"gpt-4o-mini","choices":[{"delta":{},"index":0,"finish_reason":"stop"}]}\n',
+                    b'data: [DONE]\n',
+                ]
+                for b in lines:
+                    yield b
+            def close(self):
+                return None
+        mock_request.return_value = FakeU3Resp()
 
         provider = get_provider("openrouter")
         res = provider.make_chat_completion_request(
@@ -98,10 +103,7 @@ class TestStreamingTransport(unittest.TestCase):
 
         self.assertTrue(res.success)
         self.assertEqual(res.standardized_response.get('content'), 'The answer')
-        args, kwargs = mock_post.call_args
-        self.assertTrue(kwargs.get('stream'))
 
 
 if __name__ == '__main__':
     unittest.main()
-

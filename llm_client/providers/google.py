@@ -2,7 +2,6 @@
 Google provider implementation for LLM client.
 """
 import json
-import requests
 
 from ..base import LLMProvider, LLMResponse
 
@@ -62,20 +61,23 @@ class GoogleProvider(LLMProvider):
                 if key not in data:
                     data[key] = value
             
-            # Make the request
-            response = requests.post(
-                url=url, 
-                headers={"Content-Type": "application/json"},
-                data=json.dumps(data), 
-                timeout=timeout
-            )
-            
+            # Make the request via urllib3 (total timeout treated as overall budget)
+            import urllib3
+            from urllib3.util import Timeout as _Timeout
+            http = urllib3.PoolManager()
+            body = json.dumps(data).encode('utf-8')
+            u3_timeout = _Timeout(total=float(timeout)) if isinstance(timeout, (int, float)) else _Timeout(total=None)
+            resp = http.request('POST', url, headers={"Content-Type": "application/json"}, body=body, timeout=u3_timeout, preload_content=True)
+
             # Handle non-200 responses
-            if response.status_code != 200:
-                return self._handle_error_response(response, context)
+            if resp.status != 200:
+                return self._handle_error_response(resp, context)
                 
             # Process successful response
-            raw_response = response.json()
+            try:
+                raw_response = json.loads(resp.data.decode('utf-8', errors='ignore'))
+            except Exception:
+                raw_response = {}
             
             # Check for prompt feedback (indicates blocked input)
             if 'promptFeedback' in raw_response and raw_response['promptFeedback'].get('blockReason'):
@@ -102,29 +104,25 @@ class GoogleProvider(LLMProvider):
                 context=context
             )
             
-        except requests.exceptions.Timeout as e:
-            # Handle timeout errors
+        except Exception as e:
+            # Map urllib3 exceptions into retryable/non-retryable buckets
+            try:
+                from urllib3 import exceptions as u3e
+            except Exception:
+                u3e = None
+            is_timeout = u3e and isinstance(e, (getattr(u3e, 'TimeoutError', tuple()), getattr(u3e, 'ReadTimeoutError', tuple()), getattr(u3e, 'ConnectTimeoutError', tuple())))
+            is_ssl = u3e and isinstance(e, getattr(u3e, 'SSLError', tuple()))
+            is_location = u3e and isinstance(e, getattr(u3e, 'LocationParseError', tuple()))
+            if is_timeout:
+                err_type = 'timeout'; retryable = True
+            elif is_ssl or is_location:
+                err_type = 'network_error'; retryable = False
+            else:
+                err_type = 'network_error'; retryable = True
             return LLMResponse(
                 success=False,
-                error_info={
-                    "type": "timeout",
-                    "message": f"Request timed out after {timeout} seconds: {str(e)}",
-                    "exception": str(e)
-                },
-                is_retryable=True,  # Timeouts are retryable
-                context=context
-            )
-        except requests.exceptions.RequestException as e:
-            # Handle network errors
-            return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "network_error",
-                    "message": str(e),
-                    "exception": str(e),
-                    "status_code": e.response.status_code if hasattr(e, 'response') and e.response else None
-                },
-                is_retryable=True,  # Network errors are usually retryable
+                error_info={"type": err_type, "message": str(e), "exception": str(e)},
+                is_retryable=retryable,
                 context=context
             )
         except Exception as e:
@@ -176,22 +174,33 @@ class GoogleProvider(LLMProvider):
         return google_messages
     
     def _handle_error_response(self, response, context):
-        """Process error responses from the API"""
-        status_code = response.status_code
+        """Process error responses from the API (urllib3 or requests-like)"""
+        status_code = getattr(response, 'status', None)
+        if status_code is None:
+            status_code = getattr(response, 'status_code', None)
         is_retryable = status_code in [408, 425, 429, 500, 502, 503, 504]
-        
+        error_text = None
+        error_json = None
         try:
-            error_json = response.json()
-        except:
-            error_json = None
-            
-        error_message = self._extract_error_message(error_json, response.text)
+            if hasattr(response, 'data'):
+                error_text = response.data.decode('utf-8', errors='ignore') if isinstance(response.data, (bytes, bytearray)) else str(response.data)
+            elif hasattr(response, 'text'):
+                error_text = response.text
+        except Exception:
+            error_text = None
+        if error_text:
+            try:
+                error_json = json.loads(error_text)
+            except Exception:
+                error_json = None
+        
+        error_message = self._extract_error_message(error_json, error_text or "")
         
         error_info = {
             "type": "api_error",
             "status_code": status_code,
             "message": error_message,
-            "raw_response": response.text
+            "raw_response": error_text or ""
         }
         
         return LLMResponse(

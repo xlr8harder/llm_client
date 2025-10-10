@@ -173,7 +173,6 @@ resp = retry_request(
     messages=messages,
     model_id="openai/gpt-4o-2024-08-06",
     transport="stream",       # use SSE under the hood, but return one final response
-    timeout=(10, 300),         # optional: tolerate slow token gaps
 )
 
 if resp.success:
@@ -198,7 +197,6 @@ resp = provider.make_chat_completion_request(
     messages=messages,
     model_id="gpt-4o-2024-08-06",
     transport="stream",   # SSE on the wire; final aggregated LLMResponse
-    timeout=(10, 300),     # optional: tolerate slow token gaps
 )
 
 if resp.success:
@@ -210,7 +208,7 @@ else:
 Notes:
 - `stream=True` is not supported directly and will return an `invalid_option` error. Always use `transport='stream'`.
 - This returns a single `LLMResponse` after aggregating streamed chunks; partial tokens are not exposed.
-- For long outputs, prefer a read timeout large enough to avoid idle disconnects (e.g., `timeout=(10, 300)`).
+- When using `transport='stream'`, the `timeout` option is treated as an overall request budget (enforced within the streaming layer). You can keep the default or pass a single numeric value; no per-read tuning required.
 
 ## Advanced Usage
 

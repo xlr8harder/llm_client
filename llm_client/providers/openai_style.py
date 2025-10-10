@@ -4,8 +4,6 @@ Shared base implementation for OpenAI-compatible providers.
 import json
 from typing import Any, Dict, Optional
 
-import requests
-
 from ..base import LLMProvider, LLMResponse
 
 
@@ -76,24 +74,78 @@ class OpenAIStyleProvider(LLMProvider):
         try:
             headers = self._build_request_headers()
             if use_stream_transport:
-                # Hint for SSE responses; most OpenAI-compatible APIs ignore if not needed
                 headers = {**headers, "Accept": "text/event-stream"}
 
-            response = requests.post(
-                url=f"{self._get_api_base()}/chat/completions",
+            if use_stream_transport:
+                # Use urllib3 to enforce an overall timeout for the full request
+                import urllib3
+                from urllib3.util import Timeout as _Timeout
+
+                http = urllib3.PoolManager()
+                body_bytes = json.dumps(data).encode("utf-8")
+                total_timeout = None
+                # Interpret numeric timeout as overall total; if tuple provided, approximate with sum
+                if isinstance(timeout, tuple) and len(timeout) == 2:
+                    total_timeout = float(timeout[0]) + float(timeout[1])
+                elif isinstance(timeout, (int, float)):
+                    total_timeout = float(timeout)
+
+                u3_timeout = _Timeout(total=total_timeout) if total_timeout is not None else _Timeout(total=None)
+                u3_resp = http.request(
+                    "POST",
+                    f"{self._get_api_base()}/chat/completions",
+                    body=body_bytes,
+                    headers=headers,
+                    preload_content=False,
+                    timeout=u3_timeout,
+                )
+
+                if u3_resp.status != 200:
+                    # Read small error payload for message
+                    try:
+                        err_bytes = u3_resp.read(1024)
+                        err_text = err_bytes.decode("utf-8", errors="ignore")
+                    except Exception:
+                        err_text = ""
+                    error_info = {
+                        "type": "api_error",
+                        "status_code": u3_resp.status,
+                        "message": f"Error (HTTP {u3_resp.status}): {err_text[:200]}",
+                        "raw_response": err_text,
+                    }
+                    return LLMResponse(
+                        success=False,
+                        error_info=error_info,
+                        raw_provider_response=None,
+                        is_retryable=u3_resp.status in [408, 425, 429, 500, 502, 503, 504],
+                        context=context,
+                    )
+
+                return self._consume_streaming_response_urllib3(u3_resp, context)
+
+            # Non-streaming path uses urllib3 as well
+            import urllib3
+            from urllib3.util import Timeout as _Timeout
+
+            http = urllib3.PoolManager()
+            body_bytes = json.dumps(data).encode("utf-8")
+            u3_timeout = _Timeout(total=float(timeout)) if isinstance(timeout, (int, float)) else _Timeout(total=None)
+            u3_resp = http.request(
+                "POST",
+                f"{self._get_api_base()}/chat/completions",
+                body=body_bytes,
                 headers=headers,
-                data=json.dumps(data),
-                timeout=timeout,
-                stream=use_stream_transport,
+                preload_content=True,
+                timeout=u3_timeout,
             )
 
-            if response.status_code != 200:
-                return self._handle_error_response(response, context)
+            if u3_resp.status != 200:
+                return self._handle_error_response(u3_resp, context)
 
-            if use_stream_transport:
-                return self._consume_streaming_response(response, context)
-
-            raw_response = response.json()
+            try:
+                raw_response = json.loads(u3_resp.data.decode("utf-8", errors="ignore"))
+            except Exception:
+                raw_response = {}
 
             if self._has_content_filter_error(raw_response):
                 error_info = self._extract_content_filter_error(raw_response)
@@ -115,50 +167,58 @@ class OpenAIStyleProvider(LLMProvider):
                 context=context,
             )
 
-        except requests.exceptions.Timeout as e:
-            return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "timeout",
-                    "message": f"Request timed out after {timeout} seconds: {str(e)}",
-                    "exception": str(e),
-                },
-                is_retryable=True,
-                context=context,
-            )
-        except requests.exceptions.RequestException as e:
-            status_code = e.response.status_code if getattr(e, "response", None) else None
-            return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "network_error",
-                    "message": str(e),
-                    "exception": str(e),
-                    "status_code": status_code,
-                },
-                is_retryable=True,
-                context=context,
-            )
         except Exception as e:
+            # Map urllib3 exceptions to retryable/non-retryable
+            try:
+                from urllib3 import exceptions as u3e
+            except Exception:
+                u3e = None
+            is_timeout = u3e and isinstance(e, (getattr(u3e, 'TimeoutError', tuple()), getattr(u3e, 'ReadTimeoutError', tuple()), getattr(u3e, 'ConnectTimeoutError', tuple())))
+            is_ssl = u3e and isinstance(e, getattr(u3e, 'SSLError', tuple()))
+            is_location = u3e and isinstance(e, getattr(u3e, 'LocationParseError', tuple()))
+            if is_timeout:
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "timeout", "message": str(e), "exception": str(e)},
+                    is_retryable=True,
+                    context=context,
+                )
+            if is_ssl or is_location:
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "network_error", "message": str(e), "exception": str(e)},
+                    is_retryable=False,
+                    context=context,
+                )
             return LLMResponse(
                 success=False,
-                error_info={
-                    "type": "unexpected_error",
-                    "message": str(e),
-                    "exception": str(e),
-                },
-                is_retryable=False,
+                error_info={"type": "network_error", "message": str(e), "exception": str(e)},
+                is_retryable=True,
                 context=context,
             )
 
     def _handle_error_response(self, response, context) -> LLMResponse:
-        status_code = response.status_code
+        # Support both urllib3 and requests-like responses
+        status_code = getattr(response, "status", None)
+        if status_code is None:
+            status_code = getattr(response, "status_code", None)
         is_retryable = status_code in [408, 425, 429, 500, 502, 503, 504]
-
+        error_text = None
+        error_json = None
+        # Try to obtain text/bytes
         try:
-            error_json = response.json()
-        except ValueError:
-            error_json = None
+            if hasattr(response, "data"):
+                error_text = response.data.decode("utf-8", errors="ignore") if isinstance(response.data, (bytes, bytearray)) else str(response.data)
+            elif hasattr(response, "text"):
+                error_text = response.text
+        except Exception:
+            error_text = None
+
+        if error_text:
+            try:
+                error_json = json.loads(error_text)
+            except Exception:
+                error_json = None
 
         error_message = self._extract_error_message(error_json, response)
 
@@ -166,7 +226,7 @@ class OpenAIStyleProvider(LLMProvider):
             "type": "api_error",
             "status_code": status_code,
             "message": error_message,
-            "raw_response": response.text,
+            "raw_response": (error_text or ""),
         }
 
         return LLMResponse(
@@ -228,7 +288,7 @@ class OpenAIStyleProvider(LLMProvider):
 
     def _consume_streaming_response(self, response, context) -> LLMResponse:
         """
-        Consume an OpenAI-compatible SSE response, aggregate content, and return a final LLMResponse.
+        Consume an OpenAI-compatible SSE response (requests), aggregate content, and return a final LLMResponse.
         """
         try:
             aggregated_content: str = ""
@@ -308,37 +368,148 @@ class OpenAIStyleProvider(LLMProvider):
                 is_retryable=False,
                 context=context,
             )
-        except requests.exceptions.Timeout as e:
+        except Exception as e:
+            msg = str(e).lower()
+            err_type = "timeout" if "timed out" in msg or "timeout" in msg else "network_error"
             return LLMResponse(
                 success=False,
                 error_info={
-                    "type": "timeout",
+                    "type": err_type,
                     "message": str(e),
                     "exception": str(e),
                 },
                 is_retryable=True,
                 context=context,
             )
-        except requests.exceptions.RequestException as e:
+
+    def _consume_streaming_response_urllib3(self, u3_response, context) -> LLMResponse:
+        """
+        Consume SSE stream using urllib3 HTTPResponse, aggregate content, and return final LLMResponse.
+        Enforces overall timeout via urllib3's total timeout.
+        """
+        try:
+            aggregated_content: str = ""
+            last_event: Optional[Dict[str, Any]] = None
+            finish_reason: Optional[str] = None
+            model: Optional[str] = None
+            resp_id: Optional[str] = None
+            created: Optional[int] = None
+
+            buffer = ""
+            for chunk in u3_response.stream(amt=65536, decode_content=True):
+                if not chunk:
+                    continue
+                if isinstance(chunk, bytes):
+                    text = chunk.decode("utf-8", errors="ignore")
+                else:
+                    text = str(chunk)
+                buffer += text
+
+                while True:
+                    if "\n" not in buffer:
+                        break
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip("\r")
+                    if not line:
+                        continue
+                    if line.startswith(":"):
+                        continue
+                    if line.startswith("data:"):
+                        payload = line[len("data:"):].strip()
+                    else:
+                        payload = line
+                    if payload == "[DONE]":
+                        # Finish cleanly
+                        u3_response.close()
+                        standardized = {
+                            "id": resp_id,
+                            "created": created,
+                            "model": model,
+                            "provider": self._get_provider_name(),
+                            "content": aggregated_content,
+                            "finish_reason": finish_reason or "stop",
+                            "usage": (last_event or {}).get("usage", {}),
+                        }
+                        return LLMResponse(
+                            success=True,
+                            standardized_response=standardized,
+                            raw_provider_response=last_event,
+                            is_retryable=False,
+                            context=context,
+                        )
+
+                    # Parse JSON event
+                    try:
+                        event = json.loads(payload)
+                    except Exception:
+                        continue
+                    last_event = event
+                    resp_id = event.get("id", resp_id)
+                    created = event.get("created", created)
+                    model = event.get("model", model)
+
+                    try:
+                        choices = event.get("choices") or []
+                        if choices:
+                            choice0 = choices[0]
+                            finish_reason = choice0.get("finish_reason", finish_reason)
+                            delta = choice0.get("delta") or {}
+                            content_piece = delta.get("content")
+                            if content_piece:
+                                aggregated_content += content_piece
+                            if not content_piece and isinstance(choice0.get("message"), dict):
+                                msg_content = choice0["message"].get("content")
+                                if msg_content:
+                                    aggregated_content += msg_content
+                    except Exception:
+                        pass
+
+                    if self._has_content_filter_error(event):
+                        err = self._extract_content_filter_error(event)
+                        u3_response.close()
+                        return LLMResponse(
+                            success=False,
+                            error_info=err,
+                            raw_provider_response=event,
+                            is_retryable=False,
+                            context=context,
+                        )
+
+            # If stream ended without [DONE], return what we have
+            u3_response.close()
+            standardized = {
+                "id": resp_id,
+                "created": created,
+                "model": model,
+                "provider": self._get_provider_name(),
+                "content": aggregated_content,
+                "finish_reason": finish_reason or "stop",
+                "usage": (last_event or {}).get("usage", {}),
+            }
             return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "network_error",
-                    "message": str(e),
-                    "exception": str(e),
-                    "status_code": e.response.status_code if getattr(e, "response", None) else None,
-                },
-                is_retryable=True,
+                success=True,
+                standardized_response=standardized,
+                raw_provider_response=last_event,
+                is_retryable=False,
                 context=context,
             )
         except Exception as e:
+            try:
+                from urllib3 import exceptions as u3e
+            except Exception:
+                u3e = None
+            is_timeout = u3e and isinstance(e, (getattr(u3e, 'TimeoutError', tuple()), getattr(u3e, 'ReadTimeoutError', tuple()), getattr(u3e, 'ConnectTimeoutError', tuple())))
+            is_ssl = u3e and isinstance(e, getattr(u3e, 'SSLError', tuple()))
+            is_location = u3e and isinstance(e, getattr(u3e, 'LocationParseError', tuple()))
+            if is_timeout:
+                err_type = 'timeout'; retryable = True
+            elif is_ssl or is_location:
+                err_type = 'network_error'; retryable = False
+            else:
+                err_type = 'network_error'; retryable = True
             return LLMResponse(
                 success=False,
-                error_info={
-                    "type": "unexpected_error",
-                    "message": str(e),
-                    "exception": str(e),
-                },
-                is_retryable=True,
+                error_info={"type": err_type, "message": str(e), "exception": str(e)},
+                is_retryable=retryable,
                 context=context,
             )

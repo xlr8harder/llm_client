@@ -3,7 +3,6 @@ OpenRouter provider implementation for LLM client.
 """
 import json
 import os
-import requests
 
 from ..base import LLMProvider, LLMResponse
 
@@ -90,21 +89,66 @@ class OpenRouterProvider(LLMProvider):
             if use_stream_transport:
                 req_headers["Accept"] = "text/event-stream"
 
-            response = requests.post(
-                url=url, 
-                headers=req_headers, 
-                data=json.dumps(data), 
-                timeout=timeout,
-                stream=use_stream_transport,
-            )
-            
-            if response.status_code != 200:
-                return self._handle_error_response(response, context)
-                
             if use_stream_transport:
-                return self._consume_streaming_response(response, context)
+                # Use urllib3 to enforce an overall timeout for the full streamed request
+                import urllib3
+                from urllib3.util import Timeout as _Timeout
 
-            raw_response = response.json()
+                http = urllib3.PoolManager()
+                body_bytes = json.dumps(data).encode("utf-8")
+                total_timeout = None
+                if isinstance(timeout, tuple) and len(timeout) == 2:
+                    total_timeout = float(timeout[0]) + float(timeout[1])
+                elif isinstance(timeout, (int, float)):
+                    total_timeout = float(timeout)
+
+                u3_timeout = _Timeout(total=total_timeout) if total_timeout is not None else _Timeout(total=None)
+                u3_resp = http.request(
+                    "POST",
+                    url,
+                    body=body_bytes,
+                    headers=req_headers,
+                    preload_content=False,
+                    timeout=u3_timeout,
+                )
+
+                if u3_resp.status != 200:
+                    try:
+                        err_bytes = u3_resp.read(1024)
+                        err_text = err_bytes.decode("utf-8", errors="ignore")
+                    except Exception:
+                        err_text = ""
+                    error_info = {
+                        "type": "api_error",
+                        "status_code": u3_resp.status,
+                        "message": f"Error (HTTP {u3_resp.status}): {err_text[:200]}",
+                        "raw_response": err_text,
+                    }
+                    return LLMResponse(
+                        success=False,
+                        error_info=error_info,
+                        raw_provider_response=None,
+                        is_retryable=u3_resp.status in [408, 425, 429, 500, 502, 503, 504],
+                        context=context,
+                    )
+
+                return self._consume_streaming_response_urllib3(u3_resp, context)
+
+            # Non-streaming path: urllib3
+            import urllib3
+            from urllib3.util import Timeout as _Timeout
+            http = urllib3.PoolManager()
+            body_bytes = json.dumps(data).encode('utf-8')
+            u3_timeout = _Timeout(total=float(timeout)) if isinstance(timeout, (int, float)) else _Timeout(total=None)
+            u3_resp = http.request('POST', url, body=body_bytes, headers=req_headers, timeout=u3_timeout, preload_content=True)
+
+            if u3_resp.status != 200:
+                return self._handle_error_response(u3_resp, context)
+
+            try:
+                raw_response = json.loads(u3_resp.data.decode('utf-8', errors='ignore'))
+            except Exception:
+                raw_response = {}
             standardized_response = self._standardize_response(raw_response)
             
             if self._has_content_filter_error(raw_response):
@@ -125,43 +169,37 @@ class OpenRouterProvider(LLMProvider):
                 context=context
             )
             
-        except requests.exceptions.Timeout as e:
-            return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "timeout",
-                    "message": f"Request timed out after {timeout} seconds: {str(e)}",
-                    "exception": str(e)
-                },
-                is_retryable=True,
-                context=context
-            )
-        except requests.exceptions.RequestException as e:
-            return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "network_error",
-                    "message": str(e),
-                    "exception": str(e),
-                    "status_code": e.response.status_code if hasattr(e, 'response') and e.response else None
-                },
-                is_retryable=True,
-                context=context
-            )
         except Exception as e:
+            try:
+                from urllib3 import exceptions as u3e
+            except Exception:
+                u3e = None
+            is_timeout = u3e and isinstance(e, (getattr(u3e, 'TimeoutError', tuple()), getattr(u3e, 'ReadTimeoutError', tuple()), getattr(u3e, 'ConnectTimeoutError', tuple())))
+            is_ssl = u3e and isinstance(e, getattr(u3e, 'SSLError', tuple()))
+            is_location = u3e and isinstance(e, getattr(u3e, 'LocationParseError', tuple()))
+            if is_timeout:
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "timeout", "message": str(e), "exception": str(e)},
+                    is_retryable=True,
+                    context=context,
+                )
+            if is_ssl or is_location:
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "network_error", "message": str(e), "exception": str(e)},
+                    is_retryable=False,
+                    context=context,
+                )
             return LLMResponse(
                 success=False,
-                error_info={
-                    "type": "unexpected_error",
-                    "message": str(e),
-                    "exception": str(e)
-                },
-                is_retryable=False,
-                context=context
+                error_info={"type": "network_error", "message": str(e), "exception": str(e)},
+                is_retryable=True,
+                context=context,
             )
     
     def _consume_streaming_response(self, response, context):
-        """Consume OpenRouter SSE stream (OpenAI-compatible) and build final response."""
+        """Consume OpenRouter SSE stream (requests) and build final response."""
         try:
             import json as _json
             aggregated = ""
@@ -234,34 +272,13 @@ class OpenRouterProvider(LLMProvider):
                 is_retryable=False,
                 context=context,
             )
-        except requests.exceptions.Timeout as e:
-            return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "timeout",
-                    "message": str(e),
-                    "exception": str(e),
-                },
-                is_retryable=True,
-                context=context,
-            )
-        except requests.exceptions.RequestException as e:
-            return LLMResponse(
-                success=False,
-                error_info={
-                    "type": "network_error",
-                    "message": str(e),
-                    "exception": str(e),
-                    "status_code": e.response.status_code if hasattr(e, 'response') and e.response else None,
-                },
-                is_retryable=True,
-                context=context,
-            )
         except Exception as e:
+            msg = str(e).lower()
+            err_type = "timeout" if "timed out" in msg or "timeout" in msg else "network_error"
             return LLMResponse(
                 success=False,
                 error_info={
-                    "type": "unexpected_error",
+                    "type": err_type,
                     "message": str(e),
                     "exception": str(e),
                 },
@@ -269,23 +286,163 @@ class OpenRouterProvider(LLMProvider):
                 context=context,
             )
     
+    def _consume_streaming_response_urllib3(self, u3_response, context):
+        """Consume OpenRouter SSE stream via urllib3 and build final response."""
+        try:
+            import json as _json
+            aggregated = ""
+            last_event = None
+            finish_reason = None
+            model = None
+            resp_id = None
+            created = None
+
+            buffer = ""
+            for chunk in u3_response.stream(amt=65536, decode_content=True):
+                if not chunk:
+                    continue
+                if isinstance(chunk, bytes):
+                    text = chunk.decode("utf-8", errors="ignore")
+                else:
+                    text = str(chunk)
+                buffer += text
+
+                while True:
+                    if "\n" not in buffer:
+                        break
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip("\r")
+                    if not line:
+                        continue
+                    if line.startswith(":"):
+                        continue
+                    if line.startswith("data:"):
+                        payload = line[len("data:"):].strip()
+                    else:
+                        payload = line
+                    if payload == "[DONE]":
+                        u3_response.close()
+                        standardized = {
+                            "id": resp_id,
+                            "created": created,
+                            "model": model,
+                            "provider": "openrouter",
+                            "content": aggregated,
+                            "finish_reason": finish_reason or "stop",
+                            "usage": (last_event or {}).get("usage", {}),
+                        }
+                        return LLMResponse(
+                            success=True,
+                            standardized_response=standardized,
+                            raw_provider_response=last_event,
+                            is_retryable=False,
+                            context=context,
+                        )
+
+                    try:
+                        evt = _json.loads(payload)
+                    except Exception:
+                        continue
+
+                    last_event = evt
+                    resp_id = evt.get("id", resp_id)
+                    created = evt.get("created", created)
+                    model = evt.get("model", model)
+                    try:
+                        choices = evt.get("choices") or []
+                        if choices:
+                            c0 = choices[0]
+                            finish_reason = c0.get("finish_reason", finish_reason)
+                            delta = c0.get("delta") or {}
+                            piece = delta.get("content")
+                            if piece:
+                                aggregated += piece
+                            if not piece and isinstance(c0.get("message"), dict):
+                                msg_piece = c0["message"].get("content")
+                                if msg_piece:
+                                    aggregated += msg_piece
+                    except Exception:
+                        pass
+
+                    if self._has_content_filter_error(evt):
+                        err = self._extract_content_filter_error(evt)
+                        u3_response.close()
+                        return LLMResponse(
+                            success=False,
+                            error_info=err,
+                            raw_provider_response=evt,
+                            is_retryable=False,
+                            context=context,
+                        )
+
+            u3_response.close()
+            standardized = {
+                "id": resp_id,
+                "created": created,
+                "model": model,
+                "provider": "openrouter",
+                "content": aggregated,
+                "finish_reason": finish_reason or "stop",
+                "usage": (last_event or {}).get("usage", {}),
+            }
+            return LLMResponse(
+                success=True,
+                standardized_response=standardized,
+                raw_provider_response=last_event,
+                is_retryable=False,
+                context=context,
+            )
+        except Exception as e:
+            try:
+                from urllib3 import exceptions as u3e
+            except Exception:
+                u3e = None
+            is_timeout = u3e and isinstance(e, (getattr(u3e, 'TimeoutError', tuple()), getattr(u3e, 'ReadTimeoutError', tuple()), getattr(u3e, 'ConnectTimeoutError', tuple())))
+            is_ssl = u3e and isinstance(e, getattr(u3e, 'SSLError', tuple()))
+            is_location = u3e and isinstance(e, getattr(u3e, 'LocationParseError', tuple()))
+            if is_timeout:
+                err_type = 'timeout'; retryable = True
+            elif is_ssl or is_location:
+                err_type = 'network_error'; retryable = False
+            else:
+                err_type = 'network_error'; retryable = True
+            return LLMResponse(
+                success=False,
+                error_info={"type": err_type, "message": str(e), "exception": str(e)},
+                is_retryable=retryable,
+                context=context,
+            )
+    
     def _handle_error_response(self, response, context):
-        """Process error responses from the API"""
-        status_code = response.status_code
+        """Process error responses from the API (urllib3 or requests-like)"""
+        status_code = getattr(response, 'status', None)
+        if status_code is None:
+            status_code = getattr(response, 'status_code', None)
         is_retryable = status_code in [408, 425, 429, 500, 502, 503, 504]
         
+        error_text = None
+        error_json = None
         try:
-            error_json = response.json()
-        except:
-            error_json = None
-            
-        error_message = self._extract_error_message(error_json, response.text)
+            if hasattr(response, 'data'):
+                error_text = response.data.decode('utf-8', errors='ignore') if isinstance(response.data, (bytes, bytearray)) else str(response.data)
+            elif hasattr(response, 'text'):
+                error_text = response.text
+        except Exception:
+            error_text = None
+
+        if error_text:
+            try:
+                error_json = json.loads(error_text)
+            except Exception:
+                error_json = None
+
+        error_message = self._extract_error_message(error_json, error_text or "")
         
         error_info = {
             "type": "api_error",
             "status_code": status_code,
             "message": error_message,
-            "raw_response": response.text
+            "raw_response": error_text or ""
         }
         
         return LLMResponse(
@@ -354,13 +511,20 @@ class OpenRouterProvider(LLMProvider):
         Get list of providers available for the given model ID
         """
         try:
+            import urllib3
+            from urllib3.util import Timeout as _Timeout
             endpoints_url = f"{OPENROUTER_API_BASE}/models/{model_id}/endpoints"
             headers = {"Authorization": f"Bearer {self.get_api_key()}"}
-            
-            response = requests.get(endpoints_url, headers=headers, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
+            http = urllib3.PoolManager()
+            resp = http.request('GET', endpoints_url, headers=headers, timeout=_Timeout(total=30), preload_content=True)
+            if resp.status != 200:
+                print(f"ERROR: Failed to fetch OpenRouter providers for {model_id}: HTTP {resp.status}")
+                return None
+            try:
+                data = json.loads(resp.data.decode('utf-8', errors='ignore'))
+            except Exception as e:
+                print(f"ERROR: Failed to parse OpenRouter providers JSON for {model_id}: {e}")
+                return None
             
             if 'data' in data and isinstance(data['data'], list):
                 providers = [ep.get('provider_name') for ep in data['data'] if ep.get('provider_name')]
