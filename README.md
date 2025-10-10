@@ -184,6 +184,34 @@ else:
 
 If you accidentally pass `stream=True` without `transport='stream'`, the providers return a non‑retryable error with type `invalid_option`. This ensures callers don’t mistakenly expect token‑level streaming, which the library doesn’t provide.
 
+### Direct Provider Call (no retry_request)
+
+You can call the provider directly without the retry helper. Use the same `transport='stream'` option:
+
+```python
+from llm_client import get_provider
+
+provider = get_provider("openai")  # or "openrouter", "xai", etc.
+messages = [{"role": "user", "content": "Write a long answer..."}]
+
+resp = provider.make_chat_completion_request(
+    messages=messages,
+    model_id="gpt-4o-2024-08-06",
+    transport="stream",   # SSE on the wire; final aggregated LLMResponse
+    timeout=(10, 300),     # optional: tolerate slow token gaps
+)
+
+if resp.success:
+    print(resp.standardized_response["content"])  # aggregated content
+else:
+    print(f"Error: {resp.error_info and resp.error_info.get('message')}" )
+```
+
+Notes:
+- `stream=True` is not supported directly and will return an `invalid_option` error. Always use `transport='stream'`.
+- This returns a single `LLMResponse` after aggregating streamed chunks; partial tokens are not exposed.
+- For long outputs, prefer a read timeout large enough to avoid idle disconnects (e.g., `timeout=(10, 300)`).
+
 ## Advanced Usage
 
 See the `examples` directory for more complex usage examples.
