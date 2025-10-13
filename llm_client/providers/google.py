@@ -95,7 +95,21 @@ class GoogleProvider(LLMProvider):
                 )
             
             standardized_response = self._standardize_response(raw_response)
-            
+
+            # Final sanity: if no content despite 200 and no explicit error, treat as non-retryable
+            content_text = (standardized_response.get("content") or "").strip()
+            if content_text == "":
+                return LLMResponse(
+                    success=False,
+                    error_info={
+                        "type": "content_filter",
+                        "message": "Response contained no content.",
+                    },
+                    raw_provider_response=raw_response,
+                    is_retryable=False,
+                    context=context
+                )
+
             return LLMResponse(
                 success=True,
                 standardized_response=standardized_response,
@@ -329,5 +343,5 @@ class GoogleProvider(LLMProvider):
             if ('content' in candidate and 'parts' in candidate['content'] and
                 isinstance(candidate['content']['parts'], list) and len(candidate['content']['parts']) > 0):
                 standardized['content'] = "".join([part.get('text', '') for part in candidate['content']['parts'] if 'text' in part])
-        
+
         return standardized

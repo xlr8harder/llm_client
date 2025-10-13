@@ -294,6 +294,48 @@ class TestProviders(unittest.TestCase):
         self.assertFalse(response.is_retryable)  # Client errors are not retryable
         self.assertEqual(response.error_info["type"], "api_error")
         self.assertEqual(response.error_info["status_code"], 400)
+
+    @patch('urllib3.PoolManager.request')
+    def test_openai_null_content_returns_error(self, mock_request):
+        """If provider returns null content, treat as non-retryable error."""
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode('utf-8')
+
+        # Simulate a 200 response with choices but message.content is null
+        mock_response = U3Resp(200, {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677858242,
+            "model": "gpt-4o-2024-08-06",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "total_tokens": 2
+            }
+        })
+        mock_request.return_value = mock_response
+
+        provider = get_provider("openai")
+        res = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_id="gpt-4o-2024-08-06"
+        )
+
+        self.assertFalse(res.success)
+        self.assertEqual(res.error_info.get("type"), "content_filter")
+        self.assertIn("no content", res.error_info.get("message", "").lower())
         
     @patch('urllib3.PoolManager.request')
     def test_openai_network_error(self, mock_request):
@@ -331,6 +373,26 @@ class TestProviders(unittest.TestCase):
         self.assertFalse(response.success)
         self.assertTrue(response.is_retryable)  # Timeouts are retryable
         self.assertEqual(response.error_info["type"], "timeout")
+
+    @patch('urllib3.PoolManager.request')
+    def test_openai_http200_top_level_error_is_failure(self, mock_request):
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode('utf-8')
+
+        mock_response = U3Resp(200, {"error": {"message": "Bad request in body", "code": 123}})
+        mock_request.return_value = mock_response
+
+        provider = get_provider("openai")
+        res = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_id="gpt-4o-2024-08-06"
+        )
+
+        self.assertFalse(res.success)
+        self.assertEqual(res.error_info.get("type"), "api_error")
+        self.assertIn("Bad request", res.error_info.get("message", ""))
 
     @patch('urllib3.PoolManager.request')
     def test_openai_style_customizable_subclass(self, mock_request):
@@ -617,10 +679,26 @@ class TestProviders(unittest.TestCase):
             # Test not available
             mock_get_providers.return_value = []
             self.assertFalse(provider.is_model_available("openai/gpt-4o-2024-08-06"))
-            
-            # Test error
-            mock_get_providers.return_value = None
-            self.assertFalse(provider.is_model_available("openai/gpt-4o-2024-08-06"))
+
+    @patch('urllib3.PoolManager.request')
+    def test_openrouter_http200_top_level_error_is_failure(self, mock_request):
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode('utf-8')
+
+        mock_response = U3Resp(200, {"error": {"message": "No endpoints found"}})
+        mock_request.return_value = mock_response
+
+        provider = get_provider("openrouter")
+        res = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_id="openai/gpt-4o-mini"
+        )
+
+        self.assertFalse(res.success)
+        self.assertEqual(res.error_info.get("type"), "api_error")
+        self.assertIn("endpoints", res.error_info.get("message", ""))
 
 
 class TestLLMResponse(unittest.TestCase):

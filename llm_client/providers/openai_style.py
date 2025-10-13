@@ -147,6 +147,21 @@ class OpenAIStyleProvider(LLMProvider):
             except Exception:
                 raw_response = {}
 
+            if isinstance(raw_response, dict) and "error" in raw_response:
+                error_message = self._extract_error_message(raw_response, u3_resp)
+                return LLMResponse(
+                    success=False,
+                    error_info={
+                        "type": "api_error",
+                        "status_code": getattr(u3_resp, "status", None),
+                        "message": error_message,
+                        "raw_response": u3_resp.data.decode("utf-8", errors="ignore") if getattr(u3_resp, "data", None) else "",
+                    },
+                    raw_provider_response=raw_response,
+                    is_retryable=False,
+                    context=context,
+                )
+
             if self._has_content_filter_error(raw_response):
                 error_info = self._extract_content_filter_error(raw_response)
                 return LLMResponse(
@@ -158,6 +173,20 @@ class OpenAIStyleProvider(LLMProvider):
                 )
 
             standardized_response = self._standardize_response(raw_response)
+
+            # Final sanity: if no content despite 200 and no explicit error, treat as non-retryable
+            content_text = (standardized_response.get("content") or "").strip()
+            if content_text == "":
+                return LLMResponse(
+                    success=False,
+                    error_info={
+                        "type": "content_filter",
+                        "message": "Response contained no content.",
+                    },
+                    raw_provider_response=raw_response,
+                    is_retryable=False,
+                    context=context,
+                )
 
             return LLMResponse(
                 success=True,
@@ -281,7 +310,7 @@ class OpenAIStyleProvider(LLMProvider):
         if "choices" in provider_response and provider_response["choices"]:
             choice = provider_response["choices"][0]
             if "message" in choice and "content" in choice["message"]:
-                standardized["content"] = choice["message"]["content"]
+                standardized["content"] = choice["message"].get("content")
             standardized["finish_reason"] = choice.get("finish_reason")
 
         return standardized
@@ -360,6 +389,14 @@ class OpenAIStyleProvider(LLMProvider):
                 "finish_reason": finish_reason or "stop",
                 "usage": (last_event or {}).get("usage", {}),
             }
+            if (aggregated_content or "").strip() == "":
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "content_filter", "message": "Response contained no content."},
+                    raw_provider_response=last_event,
+                    is_retryable=False,
+                    context=context,
+                )
 
             return LLMResponse(
                 success=True,
@@ -430,6 +467,14 @@ class OpenAIStyleProvider(LLMProvider):
                             "finish_reason": finish_reason or "stop",
                             "usage": (last_event or {}).get("usage", {}),
                         }
+                        if (aggregated_content or "").strip() == "":
+                            return LLMResponse(
+                                success=False,
+                                error_info={"type": "content_filter", "message": "Response contained no content."},
+                                raw_provider_response=last_event,
+                                is_retryable=False,
+                                context=context,
+                            )
                         return LLMResponse(
                             success=True,
                             standardized_response=standardized,
@@ -447,6 +492,21 @@ class OpenAIStyleProvider(LLMProvider):
                     resp_id = event.get("id", resp_id)
                     created = event.get("created", created)
                     model = event.get("model", model)
+
+                    if isinstance(event, dict) and "error" in event:
+                        err_obj = event.get("error")
+                        if isinstance(err_obj, dict):
+                            msg = err_obj.get("message") or str(err_obj)
+                        else:
+                            msg = str(err_obj)
+                        u3_response.close()
+                        return LLMResponse(
+                            success=False,
+                            error_info={"type": "api_error", "message": msg},
+                            raw_provider_response=event,
+                            is_retryable=False,
+                            context=context,
+                        )
 
                     try:
                         choices = event.get("choices") or []
@@ -486,6 +546,14 @@ class OpenAIStyleProvider(LLMProvider):
                 "finish_reason": finish_reason or "stop",
                 "usage": (last_event or {}).get("usage", {}),
             }
+            if (aggregated_content or "").strip() == "":
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "content_filter", "message": "Response contained no content."},
+                    raw_provider_response=last_event,
+                    is_retryable=False,
+                    context=context,
+                )
             return LLMResponse(
                 success=True,
                 standardized_response=standardized,

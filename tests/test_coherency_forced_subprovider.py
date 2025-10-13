@@ -49,7 +49,8 @@ class TestForcedSubprovider(unittest.TestCase):
                     num_workers=1,
                     allowed_subproviders=["deepseek"],
                     request_overrides={"reasoning": {"enabled": True}},
-                    verbose=True,
+                    verbose=False,
+                    print_summary=False,
                 )
 
                 results = tester.run_tests()

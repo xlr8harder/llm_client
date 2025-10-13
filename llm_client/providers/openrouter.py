@@ -149,6 +149,20 @@ class OpenRouterProvider(LLMProvider):
                 raw_response = json.loads(u3_resp.data.decode('utf-8', errors='ignore'))
             except Exception:
                 raw_response = {}
+            if isinstance(raw_response, dict) and 'error' in raw_response:
+                error_message = self._extract_error_message(raw_response, "")
+                return LLMResponse(
+                    success=False,
+                    error_info={
+                        'type': 'api_error',
+                        'status_code': getattr(u3_resp, 'status', None),
+                        'message': error_message,
+                        'raw_response': u3_resp.data.decode('utf-8', errors='ignore') if getattr(u3_resp, 'data', None) else '',
+                    },
+                    raw_provider_response=raw_response,
+                    is_retryable=False,
+                    context=context
+                )
             standardized_response = self._standardize_response(raw_response)
             
             if self._has_content_filter_error(raw_response):
@@ -156,6 +170,19 @@ class OpenRouterProvider(LLMProvider):
                 return LLMResponse(
                     success=False,
                     error_info=error_info,
+                    raw_provider_response=raw_response,
+                    is_retryable=False,
+                    context=context
+                )
+            # Final sanity: if no content despite 200 and no explicit error, treat as non-retryable
+            content_text = (standardized_response.get("content") or "").strip()
+            if content_text == "":
+                return LLMResponse(
+                    success=False,
+                    error_info={
+                        "type": "content_filter",
+                        "message": "Response contained no content.",
+                    },
                     raw_provider_response=raw_response,
                     is_retryable=False,
                     context=context
@@ -264,7 +291,14 @@ class OpenRouterProvider(LLMProvider):
                 "finish_reason": finish_reason or "stop",
                 "usage": (last_event or {}).get("usage", {}),
             }
-
+            if (aggregated or "").strip() == "":
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "content_filter", "message": "Response contained no content."},
+                    raw_provider_response=last_event,
+                    is_retryable=False,
+                    context=context,
+                )
             return LLMResponse(
                 success=True,
                 standardized_response=standardized,
@@ -331,6 +365,14 @@ class OpenRouterProvider(LLMProvider):
                             "finish_reason": finish_reason or "stop",
                             "usage": (last_event or {}).get("usage", {}),
                         }
+                        if (aggregated or "").strip() == "":
+                            return LLMResponse(
+                                success=False,
+                                error_info={"type": "content_filter", "message": "Response contained no content."},
+                                raw_provider_response=last_event,
+                                is_retryable=False,
+                                context=context,
+                            )
                         return LLMResponse(
                             success=True,
                             standardized_response=standardized,
@@ -348,6 +390,20 @@ class OpenRouterProvider(LLMProvider):
                     resp_id = evt.get("id", resp_id)
                     created = evt.get("created", created)
                     model = evt.get("model", model)
+                    if isinstance(evt, dict) and 'error' in evt:
+                        err = evt.get('error')
+                        if isinstance(err, dict):
+                            msg = err.get('message') or str(err)
+                        else:
+                            msg = str(err)
+                        u3_response.close()
+                        return LLMResponse(
+                            success=False,
+                            error_info={"type": "api_error", "message": msg},
+                            raw_provider_response=evt,
+                            is_retryable=False,
+                            context=context,
+                        )
                     try:
                         choices = evt.get("choices") or []
                         if choices:
@@ -385,6 +441,14 @@ class OpenRouterProvider(LLMProvider):
                 "finish_reason": finish_reason or "stop",
                 "usage": (last_event or {}).get("usage", {}),
             }
+            if (aggregated or "").strip() == "":
+                return LLMResponse(
+                    success=False,
+                    error_info={"type": "content_filter", "message": "Response contained no content."},
+                    raw_provider_response=last_event,
+                    is_retryable=False,
+                    context=context,
+                )
             return LLMResponse(
                 success=True,
                 standardized_response=standardized,
@@ -501,9 +565,9 @@ class OpenRouterProvider(LLMProvider):
         if "choices" in provider_response and len(provider_response["choices"]) > 0:
             choice = provider_response["choices"][0]
             if "message" in choice and "content" in choice["message"]:
-                standardized["content"] = choice["message"]["content"]
+                standardized["content"] = choice["message"].get("content")
             standardized["finish_reason"] = choice.get("finish_reason")
-        
+
         return standardized
     
     def get_available_providers(self, model_id):
