@@ -80,6 +80,7 @@ class TestProviders(unittest.TestCase):
         """Test Tinker provider with mocked tinker + tinker_cookbook dependencies."""
         provider = get_provider("tinker")
         self.assertIsInstance(provider, TinkerProvider)
+        self.assertEqual(os.environ.get("TOKENIZERS_PARALLELISM"), "false")
 
         class FakeModelInput:
             def __init__(self, token_ids):

@@ -11,6 +11,7 @@ Model addressing:
   - Also supported: "<tinker_path>" with `base_model=...` in options
 """
 
+import os
 import time
 from typing import Any, Dict, Optional, Tuple
 
@@ -21,6 +22,14 @@ class TinkerProvider(LLMProvider):
     """Provider implementation for Tinker Sampling API."""
 
     provider_name = "tinker"
+
+    def __init__(self):
+        super().__init__()
+        # Hugging Face tokenizers can warn (and potentially deadlock) when a process
+        # forks after tokenizers parallelism has been used. Default to disabling
+        # tokenizers parallelism for the Tinker provider unless the user explicitly
+        # configured it.
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
     def _get_api_key_env_var(self) -> str:
         # Tinker auth and configuration is handled by the `tinker` client itself
