@@ -13,6 +13,7 @@ from .providers import (
     TNGTechProvider,
     XAIProvider,
     MoonshotProvider,
+    TinkerProvider,
 )
 
 # Convenient mapping of provider names to their implementations
@@ -25,6 +26,7 @@ PROVIDER_MAP = {
     "tngtech": TNGTechProvider,
     "xai": XAIProvider,
     "moonshot": MoonshotProvider,
+    "tinker": TinkerProvider,
 }
 
 __version__ = "0.1.17"
@@ -61,4 +63,5 @@ __all__ = [
     'TNGTechProvider',
     'XAIProvider',
     'MoonshotProvider',
+    'TinkerProvider',
 ]

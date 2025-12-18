@@ -28,4 +28,13 @@ setup(
     install_requires=[
         "urllib3>=1.26.0",
     ],
+    extras_require={
+        "dev": [
+            "requests>=2.0",
+        ],
+        "tinker": [
+            "tinker",
+            "tinker_cookbook @ git+https://github.com/thinking-machines-lab/tinker-cookbook.git",
+        ],
+    },
 )

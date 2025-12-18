@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 import sys
 import json
 import urllib3
+import types
 
 # Add the parent directory to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,6 +21,7 @@ from llm_client.providers import (
     TNGTechProvider,
     XAIProvider,
     MoonshotProvider,
+    TinkerProvider,
 )
 from llm_client.providers.openai_style import OpenAIStyleProvider
 
@@ -58,6 +60,7 @@ class TestProviders(unittest.TestCase):
             "tngtech",
             "xai",
             "moonshot",
+            "tinker",
         ]
         for name in provider_names:
             provider = get_provider(name)
@@ -72,6 +75,156 @@ class TestProviders(unittest.TestCase):
         # Test invalid provider
         with self.assertRaises(ValueError):
             get_provider("invalid_provider")
+
+    def test_tinker_provider_mocked_sampling(self):
+        """Test Tinker provider with mocked tinker + tinker_cookbook dependencies."""
+        provider = get_provider("tinker")
+        self.assertIsInstance(provider, TinkerProvider)
+
+        class FakeModelInput:
+            def __init__(self, token_ids):
+                self._token_ids = list(token_ids)
+
+            def to_ints(self):
+                return list(self._token_ids)
+
+        class FakeRenderer:
+            def __init__(self, name):
+                self._name = name
+
+            def build_generation_prompt(self, messages):
+                # Ensure messages are passed through
+                assert isinstance(messages, list)
+                return FakeModelInput([101, 102, 103])
+
+            def get_stop_sequences(self):
+                return ["<STOP>"]
+
+            def parse_response(self, tokens):
+                return {"role": "assistant", "content": "hello from tinker"}, True
+
+        class FakeTokenizer:
+            pass
+
+        class FakeSamplingParams:
+            def __init__(self, **kwargs):
+                self.kwargs = dict(kwargs)
+
+        class FakeSampleSeq:
+            def __init__(self, tokens):
+                self.tokens = list(tokens)
+
+        class FakeSampleResult:
+            def __init__(self, sequences):
+                self.sequences = sequences
+
+        class FakeFuture:
+            def __init__(self, result):
+                self._result = result
+
+            def result(self, timeout=None):
+                return self._result
+
+        class FakeSamplingClient:
+            def __init__(self):
+                self.last = None
+
+            def sample(self, prompt, sampling_params, num_samples=1):
+                self.last = {
+                    "prompt": prompt,
+                    "sampling_params": sampling_params,
+                    "num_samples": num_samples,
+                }
+                return FakeFuture(FakeSampleResult([FakeSampleSeq([201, 202])]))
+
+        class FakeServiceClient:
+            def __init__(self, base_url=None):
+                self.base_url = base_url
+                self.created_with = None
+                self._client = FakeSamplingClient()
+
+            def create_sampling_client(self, model_path=None, base_model=None):
+                self.created_with = {"model_path": model_path, "base_model": base_model}
+                return self._client
+
+        fake_tinker = types.ModuleType("tinker")
+        fake_tinker.SamplingParams = FakeSamplingParams
+        fake_tinker.ServiceClient = FakeServiceClient
+
+        fake_pkg = types.ModuleType("tinker_cookbook")
+        fake_renderers = types.ModuleType("tinker_cookbook.renderers")
+        fake_tokenizer_utils = types.ModuleType("tinker_cookbook.tokenizer_utils")
+
+        def _get_renderer(name, tokenizer):
+            self.assertIsInstance(tokenizer, FakeTokenizer)
+            return FakeRenderer(name)
+
+        def _get_tokenizer(base_model):
+            self.assertEqual(base_model, "BaseModel")
+            return FakeTokenizer()
+
+        fake_renderers.get_renderer = _get_renderer
+        fake_tokenizer_utils.get_tokenizer = _get_tokenizer
+
+        # Support `from tinker_cookbook import renderers` and `from tinker_cookbook.tokenizer_utils import get_tokenizer`
+        fake_pkg.renderers = fake_renderers
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "tinker": fake_tinker,
+                "tinker_cookbook": fake_pkg,
+                "tinker_cookbook.renderers": fake_renderers,
+                "tinker_cookbook.tokenizer_utils": fake_tokenizer_utils,
+            },
+        ):
+            resp = provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "hi"}],
+                model_id="BaseModel::qwen3::tinker://checkpoint",
+                max_tokens=10,
+                temperature=0.0,
+                top_p=1.0,
+            )
+
+        self.assertTrue(resp.success)
+        self.assertIn("content", resp.standardized_response)
+        self.assertEqual(resp.standardized_response["content"], "hello from tinker")
+        self.assertEqual(resp.standardized_response["provider"], "tinker")
+        self.assertEqual(resp.standardized_response["model"], "BaseModel::qwen3::tinker://checkpoint")
+        self.assertEqual(resp.standardized_response["usage"]["prompt_tokens"], 3)
+        self.assertEqual(resp.standardized_response["usage"]["completion_tokens"], 2)
+
+    def test_tinker_provider_requires_base_model_for_raw_path(self):
+        provider = get_provider("tinker")
+
+        fake_tinker = types.ModuleType("tinker")
+        fake_tinker.SamplingParams = object
+        fake_tinker.ServiceClient = object
+
+        fake_pkg = types.ModuleType("tinker_cookbook")
+        fake_renderers = types.ModuleType("tinker_cookbook.renderers")
+        fake_tokenizer_utils = types.ModuleType("tinker_cookbook.tokenizer_utils")
+        fake_pkg.renderers = fake_renderers
+
+        fake_tokenizer_utils.get_tokenizer = lambda _: None
+        fake_renderers.get_renderer = lambda **_: None
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "tinker": fake_tinker,
+                "tinker_cookbook": fake_pkg,
+                "tinker_cookbook.renderers": fake_renderers,
+                "tinker_cookbook.tokenizer_utils": fake_tokenizer_utils,
+            },
+        ):
+            resp = provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "hi"}],
+                model_id="tinker://checkpoint",
+            )
+
+        self.assertFalse(resp.success)
+        self.assertIn("base_model", (resp.error_info or {}).get("message", ""))
             
     def test_api_key_retrieval(self):
         """Test API key retrieval"""

@@ -9,6 +9,7 @@ from .google import GoogleProvider
 from .tngtech import TNGTechProvider
 from .xai import XAIProvider
 from .moonshot import MoonshotProvider
+from .tinker import TinkerProvider
 
 __all__ = [
     'OpenAIProvider',
@@ -19,4 +20,5 @@ __all__ = [
     'TNGTechProvider',
     'XAIProvider',
     'MoonshotProvider',
+    'TinkerProvider',
 ]

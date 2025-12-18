@@ -18,6 +18,19 @@ dependencies = [
     "urllib3>=1.26.0",
 ]
 
+[project.optional-dependencies]
+# Test/dev dependencies (not required at runtime).
+dev = [
+    "requests>=2.0",
+]
+
+# Optional dependencies for the `tinker` provider.
+# `tinker` is available on PyPI. `tinker_cookbook` is currently installed from git.
+tinker = [
+    "tinker",
+    "tinker_cookbook @ git+https://github.com/thinking-machines-lab/tinker-cookbook.git",
+]
+
 [project.urls]
 "Homepage" = "https://github.com/xlr8harder/llm_client"
 "Bug Tracker" = "https://github.com/xlr8harder/llm_client/issues"

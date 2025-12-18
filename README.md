@@ -21,6 +21,7 @@ A clean, modular client library for interacting with various LLM providers (Open
 - Chutes
 - Google (Gemini models)
 - X.AI (OpenAI-compatible)
+- Tinker (Sampling API via `tinker` + `tinker_cookbook`)
 
 ## Installation
 
@@ -30,6 +31,18 @@ Clone this repository:
 git clone https://github.com/yourusername/llm-client.git
 cd llm-client
 ```
+
+### Optional: Tinker provider dependencies (uv)
+
+The `tinker` provider has optional dependencies. With `uv`:
+
+```bash
+uv pip install -e '.[tinker]'
+```
+
+This will install:
+- `tinker` from PyPI
+- `tinker_cookbook` from `git+https://github.com/thinking-machines-lab/tinker-cookbook`
 
 ## Configuration
 
@@ -42,6 +55,30 @@ export FIREWORKS_API_KEY="your-fireworks-key"
 export CHUTES_API_TOKEN="your-chutes-token"
 export GEMINI_API_KEY="your-gemini-key"
 export XAI_API_KEY="your-xai-key"
+```
+
+## Tinker Provider Usage
+
+Model IDs for the `tinker` provider are encoded to include the base model, renderer, and checkpoint path:
+
+- Recommended: `<base_model>::<renderer>::<tinker_path>`
+- Also supported: `<base_model>::<tinker_path>` (renderer from `renderer=` or defaults to `role_colon`)
+- Also supported: `<tinker_path>` with `base_model=...` in options
+
+```python
+from llm_client import get_provider, retry_request
+
+provider = get_provider("tinker")
+
+response = retry_request(
+    provider=provider,
+    messages=[{"role": "user", "content": "Hello!"}],
+    model_id="Qwen/Qwen3-30B-A3B::qwen3::tinker://your-checkpoint-path",
+    max_retries=2,
+    timeout=120,
+)
+
+print(response.standardized_response["content"])
 ```
 
 ## Basic Usage
