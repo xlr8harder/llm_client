@@ -26,10 +26,10 @@ dev = [
 ]
 
 # Optional dependencies for the `tinker` provider.
-# `tinker` is available on PyPI. `tinker_cookbook` is currently installed from git.
+# `tinker` is available on PyPI. `tinker_cookbook` is from xlr8harder fork (has normalize_weights).
 tinker = [
     "tinker",
-    "tinker_cookbook @ git+https://github.com/thinking-machines-lab/tinker-cookbook.git",
+    "tinker_cookbook @ git+https://github.com/xlr8harder/tinker-cookbook.git",
 ]
 
 [project.urls]
