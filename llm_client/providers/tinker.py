@@ -101,6 +101,14 @@ class TinkerProvider(LLMProvider):
             else:
                 content = str(assistant_message)
 
+            # Extract thinking from structured content for reasoning display
+            thinking = None
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "thinking":
+                        thinking = item.get("thinking", "")
+                        break
+
             prompt_tokens = None
             try:
                 prompt_tokens = len(prompt.to_ints())
@@ -124,13 +132,17 @@ class TinkerProvider(LLMProvider):
                 "finish_reason": "stop" if parse_success else "length",
             }
 
+            raw_response = {
+                "sequences": [{"tokens": tokens}],
+                "tinker": {"base_model": base_model, "model_path": tinker_path, "renderer": renderer_name},
+            }
+            if thinking:
+                raw_response["thinking"] = thinking
+
             return LLMResponse(
                 success=True,
                 standardized_response=standardized,
-                raw_provider_response={
-                    "sequences": [{"tokens": tokens}],
-                    "tinker": {"base_model": base_model, "model_path": tinker_path, "renderer": renderer_name},
-                },
+                raw_provider_response=raw_response,
                 is_retryable=False,
                 context=context,
             )
