@@ -36,5 +36,8 @@ tinker = [
 "Homepage" = "https://github.com/xlr8harder/llm_client"
 "Bug Tracker" = "https://github.com/xlr8harder/llm_client/issues"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.dynamic]
 version = {attr = "llm_client.__version__"}
