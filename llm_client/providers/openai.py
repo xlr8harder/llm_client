@@ -1,6 +1,7 @@
 """
 OpenAI provider implementation for LLM client.
 """
+
 from .openai_style import OpenAIStyleProvider
 
 OPENAI_API_BASE = "https://api.openai.com/v1"

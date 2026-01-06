@@ -18,21 +18,34 @@ Notes:
   - Specify at most one of --reasoning-tokens or --reasoning-effort.
   - --force-subprovider is only valid with OpenRouter targets.
 """
+
 import argparse
 import sys
 import os
 
 # Ensure local package is importable when running from a clone
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from llm_client.testing import CoherencyTester
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Run coherency tests for an OpenRouter model and report good/bad sub‑providers.")
-    p.add_argument("--model", required=True, help="OpenRouter model id (e.g., qwen/qwen3-next-80b-a3b-thinking)")
-    p.add_argument("--workers", type=int, default=4, help="Number of concurrent workers")
-    p.add_argument("--verbose", action="store_true", help="Verbose mode: dump full raw responses on failures")
+    p = argparse.ArgumentParser(
+        description="Run coherency tests for an OpenRouter model and report good/bad sub‑providers."
+    )
+    p.add_argument(
+        "--model",
+        required=True,
+        help="OpenRouter model id (e.g., qwen/qwen3-next-80b-a3b-thinking)",
+    )
+    p.add_argument(
+        "--workers", type=int, default=4, help="Number of concurrent workers"
+    )
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Verbose mode: dump full raw responses on failures",
+    )
     p.add_argument(
         "--force-subprovider",
         dest="force_subproviders",
@@ -42,11 +55,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Reasoning controls (mutually exclusive enable/disable)
     group = p.add_mutually_exclusive_group()
-    group.add_argument("--reasoning", action="store_true", help="Enable reasoning and enforce thinking output")
-    group.add_argument("--no-reasoning", action="store_true", help="Disable reasoning and fail providers that return thinking output")
+    group.add_argument(
+        "--reasoning",
+        action="store_true",
+        help="Enable reasoning and enforce thinking output",
+    )
+    group.add_argument(
+        "--no-reasoning",
+        action="store_true",
+        help="Disable reasoning and fail providers that return thinking output",
+    )
 
-    p.add_argument("--reasoning-tokens", type=int, help="Reasoning max_tokens budget (when --reasoning)")
-    p.add_argument("--reasoning-effort", choices=["low", "medium", "high"], help="Reasoning effort level (when --reasoning)")
+    p.add_argument(
+        "--reasoning-tokens",
+        type=int,
+        help="Reasoning max_tokens budget (when --reasoning)",
+    )
+    p.add_argument(
+        "--reasoning-effort",
+        choices=["low", "medium", "high"],
+        help="Reasoning effort level (when --reasoning)",
+    )
 
     return p
 
@@ -66,7 +95,10 @@ def main(argv=None) -> int:
 
     if reasoning_cfg.get("enabled") is True:
         if args.reasoning_tokens is not None and args.reasoning_effort is not None:
-            print("ERROR: Specify only one of --reasoning-tokens or --reasoning-effort.", file=sys.stderr)
+            print(
+                "ERROR: Specify only one of --reasoning-tokens or --reasoning-effort.",
+                file=sys.stderr,
+            )
             return 2
         if args.reasoning_tokens is not None:
             reasoning_cfg["max_tokens"] = args.reasoning_tokens
@@ -80,7 +112,10 @@ def main(argv=None) -> int:
     if args.force_subproviders and len(args.force_subproviders) > 0:
         target_provider = "openrouter"
         if target_provider.lower() != "openrouter":
-            print("ERROR: --force-subprovider is only supported with OpenRouter.", file=sys.stderr)
+            print(
+                "ERROR: --force-subprovider is only supported with OpenRouter.",
+                file=sys.stderr,
+            )
             return 2
 
     # Set up tester and run
@@ -89,7 +124,9 @@ def main(argv=None) -> int:
         target_model_id=args.model,
         num_workers=args.workers,
         test_prompts=None,
-        allowed_subproviders=args.force_subproviders if args.force_subproviders else None,
+        allowed_subproviders=args.force_subproviders
+        if args.force_subproviders
+        else None,
         request_overrides=request_overrides if request_overrides else None,
         verbose=bool(args.verbose),
         print_summary=False,
@@ -114,15 +151,27 @@ def main(argv=None) -> int:
     else:
         print("Reasoning config: <none>")
 
-    print(f"\nGood providers ({len(passed)}): {', '.join(passed) if passed else '<none>'}")
-    print(f"Bad providers  ({len(failed)}): {', '.join(failed) if failed else '<none>'}")
+    print(
+        f"\nGood providers ({len(passed)}): {', '.join(passed) if passed else '<none>'}"
+    )
+    print(
+        f"Bad providers  ({len(failed)}): {', '.join(failed) if failed else '<none>'}"
+    )
     if failed:
-        print(f"  - Provider errors/blocking ({len(failed_errors)}): {', '.join(failed_errors) if failed_errors else '<none>'}")
-        print(f"  - Reasoning fails ({len(failed_reasoning)}): {', '.join(failed_reasoning) if failed_reasoning else '<none>'}")
-        print(f"  - Incoherent (judge NO) ({len(failed_coherency)}): {', '.join(failed_coherency) if failed_coherency else '<none>'}")
+        print(
+            f"  - Provider errors/blocking ({len(failed_errors)}): {', '.join(failed_errors) if failed_errors else '<none>'}"
+        )
+        print(
+            f"  - Reasoning fails ({len(failed_reasoning)}): {', '.join(failed_reasoning) if failed_reasoning else '<none>'}"
+        )
+        print(
+            f"  - Incoherent (judge NO) ({len(failed_coherency)}): {', '.join(failed_coherency) if failed_coherency else '<none>'}"
+        )
 
     if failed:
-        print("\nTip: exclude bad providers using ignore_list when calling retry_request.")
+        print(
+            "\nTip: exclude bad providers using ignore_list when calling retry_request."
+        )
 
     # Return non-zero if no provider passed
     return 0 if passed else 1

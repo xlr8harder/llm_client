@@ -1,6 +1,7 @@
 """
 X.AI provider implementation for LLM client.
 """
+
 from .openai_style import OpenAIStyleProvider
 
 XAI_API_BASE = "https://api.x.ai/v1"

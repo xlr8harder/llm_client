@@ -9,11 +9,12 @@ Design:
 - Per-provider early stop: if any prompt fails for a provider, remaining tasks for that
   provider are discarded before submission.
 """
+
 import sys
 import json
 import concurrent.futures
 from collections import deque
-from typing import List, Tuple, Dict, Any, Optional, Union
+from typing import List, Tuple, Dict, Any, Optional
 
 from ..retry import retry_request
 from .. import get_provider
@@ -21,9 +22,18 @@ from .. import get_provider
 # Default test prompts
 DEFAULT_TEST_PROMPTS = [
     {"id": "test_dog", "prompt": "Write a story about a dog who is scared of cats."},
-    {"id": "test_godzilla", "prompt": "Write a humorous news article about Godzilla visiting New York on holiday."},
-    {"id": "test_dvorak", "prompt": "Write an argument in favor of teaching Dvorak keyboards in school."},
-    {"id": "test_os", "prompt": "Compare and contrast the different major operating systems available for PCs."},
+    {
+        "id": "test_godzilla",
+        "prompt": "Write a humorous news article about Godzilla visiting New York on holiday.",
+    },
+    {
+        "id": "test_dvorak",
+        "prompt": "Write an argument in favor of teaching Dvorak keyboards in school.",
+    },
+    {
+        "id": "test_os",
+        "prompt": "Compare and contrast the different major operating systems available for PCs.",
+    },
 ]
 
 # Default judge configuration
@@ -64,7 +74,11 @@ class CoherencyTester:
         self.print_summary = bool(print_summary)
 
         # Determine if reasoning expectation should be enforced
-        reasoning_cfg = self.request_overrides.get("reasoning") if isinstance(self.request_overrides, dict) else None
+        reasoning_cfg = (
+            self.request_overrides.get("reasoning")
+            if isinstance(self.request_overrides, dict)
+            else None
+        )
         if isinstance(reasoning_cfg, dict) and "enabled" in reasoning_cfg:
             self._expect_reasoning: Optional[bool] = bool(reasoning_cfg.get("enabled"))
         else:
@@ -76,7 +90,9 @@ class CoherencyTester:
 
         # If the caller tries to force subproviders on a non-OpenRouter provider, error clearly
         if self.allowed_subproviders and target_provider_name.lower() != "openrouter":
-            raise ValueError("allowed_subproviders is only supported when target_provider_name is 'openrouter'")
+            raise ValueError(
+                "allowed_subproviders is only supported when target_provider_name is 'openrouter'"
+            )
 
         # OpenRouter subproviders (optional)
         # If the caller specifies allowed_subproviders, treat that as authoritative for testing
@@ -90,8 +106,15 @@ class CoherencyTester:
                 self.openrouter_providers = [p for p in self.allowed_subproviders if p]
                 # Best-effort: fetch available providers to warn about mismatches, but do not filter
                 try:
-                    available = self.target_provider.get_available_providers(target_model_id) or []
-                    missing = [p for p in self.openrouter_providers if p not in (available or [])]
+                    available = (
+                        self.target_provider.get_available_providers(target_model_id)
+                        or []
+                    )
+                    missing = [
+                        p
+                        for p in self.openrouter_providers
+                        if p not in (available or [])
+                    ]
                     if missing:
                         print(
                             "Warning: Requested OpenRouter subproviders not reported as available: "
@@ -99,14 +122,23 @@ class CoherencyTester:
                             file=sys.stderr,
                         )
                 except Exception as e:
-                    print(f"Warning: Unable to fetch OpenRouter providers: {str(e)}", file=sys.stderr)
+                    print(
+                        f"Warning: Unable to fetch OpenRouter providers: {str(e)}",
+                        file=sys.stderr,
+                    )
             else:
                 # No explicit allow-list: use what OpenRouter reports
                 try:
-                    providers = self.target_provider.get_available_providers(target_model_id) or []
+                    providers = (
+                        self.target_provider.get_available_providers(target_model_id)
+                        or []
+                    )
                     self.openrouter_providers = providers
                 except Exception as e:
-                    print(f"Warning: Unable to fetch OpenRouter providers: {str(e)}", file=sys.stderr)
+                    print(
+                        f"Warning: Unable to fetch OpenRouter providers: {str(e)}",
+                        file=sys.stderr,
+                    )
 
     # --------------------------- Judge helpers ---------------------------
 
@@ -129,7 +161,9 @@ Consider if the response is on-topic, understandable, and not complete gibberish
 Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
 """
 
-    def judge_coherency(self, request: str, response: str, context: Dict[str, Any] = None) -> Tuple[bool, Dict[str, Any]]:
+    def judge_coherency(
+        self, request: str, response: str, context: Dict[str, Any] = None
+    ) -> Tuple[bool, Dict[str, Any]]:
         if not response:
             return False, {"error": "Empty response"}
 
@@ -146,12 +180,18 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
         )
 
         if not judge_result.success:
-            msg = judge_result.error_info.get("message") if judge_result.error_info else "Unknown judge error"
+            msg = (
+                judge_result.error_info.get("message")
+                if judge_result.error_info
+                else "Unknown judge error"
+            )
             print(f"Judge request failed: {msg}", file=sys.stderr)
             return False, judge_result.raw_provider_response
 
         try:
-            judge_content = judge_result.standardized_response.get("content", "").strip().upper()
+            judge_content = (
+                judge_result.standardized_response.get("content", "").strip().upper()
+            )
             if judge_content == "YES":
                 return True, judge_result.raw_provider_response
             if judge_content == "NO":
@@ -161,7 +201,10 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                     file=sys.stderr,
                 )
                 return False, judge_result.raw_provider_response
-            print(f"Judge returned unexpected format: '{judge_content}'. Treating as incoherent.", file=sys.stderr)
+            print(
+                f"Judge returned unexpected format: '{judge_content}'. Treating as incoherent.",
+                file=sys.stderr,
+            )
             return False, judge_result.raw_provider_response
         except Exception as e:
             print(f"Failed to parse judge response: {e}", file=sys.stderr)
@@ -169,7 +212,9 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
 
     # --------------------------- Core test runner ---------------------------
 
-    def test_model(self, test_prompt: Dict[str, str], provider_filter: Optional[List[str]]) -> Dict[str, Any]:
+    def test_model(
+        self, test_prompt: Dict[str, str], provider_filter: Optional[List[str]]
+    ) -> Dict[str, Any]:
         """
         Execute one prompt against the target model (optionally filtered to a subprovider),
         then have the judge evaluate coherency.
@@ -331,13 +376,17 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
         """
         # Treat as OpenRouter testing mode whenever we're targeting OpenRouter and we have
         # a defined provider list (possibly provided by the caller), even if empty.
-        is_openrouter = self.target_provider_name.lower() == "openrouter" and (self.openrouter_providers is not None)
+        is_openrouter = self.target_provider_name.lower() == "openrouter" and (
+            self.openrouter_providers is not None
+        )
 
         if is_openrouter:
             providers = self.openrouter_providers or []
             providers_str = ", ".join(providers)
             if self.print_summary:
-                print(f"\n--- Running OpenRouter Provider Tests for Model: {self.target_model_id} ---")
+                print(
+                    f"\n--- Running OpenRouter Provider Tests for Model: {self.target_model_id} ---"
+                )
                 print(f"Providers under test ({len(providers)}): {providers_str}")
         else:
             providers = [None]
@@ -352,10 +401,10 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
         # Per-provider state
         provider_state: Dict[Optional[str], Dict[str, Any]] = {
             p: {
-                "failed": False,        # set True on first failure
-                "started": False,       # print header once when first task is scheduled
-                "results": [],          # list of per-prompt results
-                "failed_category": None, # 'provider_error' | 'blocked' | 'reasoning' | 'coherency' | 'unknown'
+                "failed": False,  # set True on first failure
+                "started": False,  # print header once when first task is scheduled
+                "results": [],  # list of per-prompt results
+                "failed_category": None,  # 'provider_error' | 'blocked' | 'reasoning' | 'coherency' | 'unknown'
             }
             for p in providers
         }
@@ -376,15 +425,23 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                     continue
 
                 # Lazily print per-provider header once we actually schedule
-                if is_openrouter and not provider_state[provider]["started"] and self.print_summary:
+                if (
+                    is_openrouter
+                    and not provider_state[provider]["started"]
+                    and self.print_summary
+                ):
                     print(f"\n  Testing OpenRouter Sub-Provider: [{provider}]")
                     provider_state[provider]["started"] = True
 
-                provider_filter = [provider] if (is_openrouter and provider is not None) else None
+                provider_filter = (
+                    [provider] if (is_openrouter and provider is not None) else None
+                )
                 future = executor.submit(self.test_model, test_prompt, provider_filter)
                 in_flight[future] = (provider, test_prompt["id"])
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.num_workers
+        ) as executor:
             schedule_up_to_capacity(executor)
 
             while in_flight:
@@ -400,7 +457,9 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                             "success": False,
                             "error": f"Exception: {str(e)}",
                             "exception": str(e),
-                            "provider_filter": [provider] if provider is not None else None,
+                            "provider_filter": [provider]
+                            if provider is not None
+                            else None,
                         }
 
                     provider_state[provider]["results"].append(result)
@@ -408,8 +467,14 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                     if not result.get("success", False):
                         provider_state[provider]["failed"] = True
                         if not provider_state[provider].get("failed_category"):
-                            provider_state[provider]["failed_category"] = result.get("failure_category", "unknown")
-                        if is_openrouter and provider is not None and self.print_summary:
+                            provider_state[provider]["failed_category"] = result.get(
+                                "failure_category", "unknown"
+                            )
+                        if (
+                            is_openrouter
+                            and provider is not None
+                            and self.print_summary
+                        ):
                             print(
                                 f"    [FAIL] Test '{test_id}' failed for provider [{provider}]",
                                 file=sys.stderr,
@@ -431,7 +496,9 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                     else:
                         if self.print_summary:
                             if is_openrouter and provider is not None:
-                                print(f"    [PASS] Test '{test_id}' passed for provider [{provider}]")
+                                print(
+                                    f"    [PASS] Test '{test_id}' passed for provider [{provider}]"
+                                )
                             else:
                                 print(f"  [PASS] Test '{test_id}' passed")
 
@@ -450,7 +517,9 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
             for p in providers:
                 prov_results = provider_state[p]["results"]
                 # Provider passes if it never failed AND completed all prompts
-                prov_passed = (not provider_state[p]["failed"]) and (len(prov_results) == len(self.test_prompts))
+                prov_passed = (not provider_state[p]["failed"]) and (
+                    len(prov_results) == len(self.test_prompts)
+                )
                 if prov_passed:
                     passed_providers.append(p)  # type: ignore[arg-type]
                     status_line = f"  ---> Sub-Provider [{p}] PASSED all tests"
@@ -470,22 +539,29 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
 
             if self.print_summary:
                 print("\n--- OpenRouter Provider Test Summary ---")
-                print(
-                    f"  Tested Providers: {len(providers)} "
-                    f"({', '.join(providers)})"
-                )
+                print(f"  Tested Providers: {len(providers)} ({', '.join(providers)})")
                 if passed_providers:
-                    print(f"  Passed: {len(passed_providers)} ({', '.join(passed_providers)})")
+                    print(
+                        f"  Passed: {len(passed_providers)} ({', '.join(passed_providers)})"
+                    )
                 else:
                     print("  Passed: 0")
                 if failed_providers:
-                    print(f"  Failed: {len(failed_providers)} ({', '.join(failed_providers)})")
+                    print(
+                        f"  Failed: {len(failed_providers)} ({', '.join(failed_providers)})"
+                    )
                     if failed_providers_errors:
-                        print(f"    - Provider errors/blocking: {len(failed_providers_errors)} ({', '.join(failed_providers_errors)})")
+                        print(
+                            f"    - Provider errors/blocking: {len(failed_providers_errors)} ({', '.join(failed_providers_errors)})"
+                        )
                     if failed_providers_reasoning:
-                        print(f"    - Reasoning fails: {len(failed_providers_reasoning)} ({', '.join(failed_providers_reasoning)})")
+                        print(
+                            f"    - Reasoning fails: {len(failed_providers_reasoning)} ({', '.join(failed_providers_reasoning)})"
+                        )
                     if failed_providers_coherency:
-                        print(f"    - Incoherent (judge NO): {len(failed_providers_coherency)} ({', '.join(failed_providers_coherency)})")
+                        print(
+                            f"    - Incoherent (judge NO): {len(failed_providers_coherency)} ({', '.join(failed_providers_coherency)})"
+                        )
                 else:
                     print("  Failed: 0")
 
@@ -506,7 +582,9 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
         else:
             # Single-provider (non-OpenRouter) summary
             all_results = provider_state[None]["results"]
-            all_tests_passed = (not provider_state[None]["failed"]) and (len(all_results) == len(self.test_prompts))
+            all_tests_passed = (not provider_state[None]["failed"]) and (
+                len(all_results) == len(self.test_prompts)
+            )
 
             if self.print_summary:
                 print("\n--- Coherency Tests Summary ---")
@@ -514,7 +592,9 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
                 passed_count = sum(1 for r in all_results if r.get("success"))
                 failed_ids = [r["test_id"] for r in all_results if not r.get("success")]
                 print(f"  Passed: {passed_count}")
-                print(f" Failed: {len(all_results) - passed_count}{' (' + ', '.join(failed_ids) + ')' if failed_ids else ''}")
+                print(
+                    f" Failed: {len(all_results) - passed_count}{' (' + ', '.join(failed_ids) + ')' if failed_ids else ''}"
+                )
                 print(f"  Overall Result: {'PASSED' if all_tests_passed else 'FAILED'}")
                 print("-----------------------------")
 
@@ -574,7 +654,10 @@ def run_coherency_tests(
 
     results = tester.run_tests()
 
-    if target_provider_name.lower() == "openrouter" and tester.openrouter_providers is not None:
+    if (
+        target_provider_name.lower() == "openrouter"
+        and tester.openrouter_providers is not None
+    ):
         return results.get("all_passed", False), results.get("failed_providers", [])
     else:
         return results.get("all_tests_passed", False), []

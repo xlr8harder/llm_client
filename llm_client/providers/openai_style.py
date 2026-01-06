@@ -1,6 +1,7 @@
 """
 Shared base implementation for OpenAI-compatible providers.
 """
+
 import json
 from typing import Any, Dict, Optional
 
@@ -37,7 +38,9 @@ class OpenAIStyleProvider(LLMProvider):
             "Content-Type": "application/json",
         }
 
-    def make_chat_completion_request(self, messages, model_id, context=None, **options) -> LLMResponse:
+    def make_chat_completion_request(
+        self, messages, model_id, context=None, **options
+    ) -> LLMResponse:
         timeout = options.pop("timeout", self.default_timeout)
         max_tokens = options.pop("max_tokens", self.default_max_tokens)
 
@@ -90,7 +93,11 @@ class OpenAIStyleProvider(LLMProvider):
                 elif isinstance(timeout, (int, float)):
                     total_timeout = float(timeout)
 
-                u3_timeout = _Timeout(total=total_timeout) if total_timeout is not None else _Timeout(total=None)
+                u3_timeout = (
+                    _Timeout(total=total_timeout)
+                    if total_timeout is not None
+                    else _Timeout(total=None)
+                )
                 u3_resp = http.request(
                     "POST",
                     f"{self._get_api_base()}/chat/completions",
@@ -117,7 +124,8 @@ class OpenAIStyleProvider(LLMProvider):
                         success=False,
                         error_info=error_info,
                         raw_provider_response=None,
-                        is_retryable=u3_resp.status in [408, 425, 429, 500, 502, 503, 504],
+                        is_retryable=u3_resp.status
+                        in [408, 425, 429, 500, 502, 503, 504],
                         context=context,
                     )
 
@@ -129,7 +137,11 @@ class OpenAIStyleProvider(LLMProvider):
 
             http = urllib3.PoolManager()
             body_bytes = json.dumps(data).encode("utf-8")
-            u3_timeout = _Timeout(total=float(timeout)) if isinstance(timeout, (int, float)) else _Timeout(total=None)
+            u3_timeout = (
+                _Timeout(total=float(timeout))
+                if isinstance(timeout, (int, float))
+                else _Timeout(total=None)
+            )
             u3_resp = http.request(
                 "POST",
                 f"{self._get_api_base()}/chat/completions",
@@ -155,7 +167,9 @@ class OpenAIStyleProvider(LLMProvider):
                         "type": "api_error",
                         "status_code": getattr(u3_resp, "status", None),
                         "message": error_message,
-                        "raw_response": u3_resp.data.decode("utf-8", errors="ignore") if getattr(u3_resp, "data", None) else "",
+                        "raw_response": u3_resp.data.decode("utf-8", errors="ignore")
+                        if getattr(u3_resp, "data", None)
+                        else "",
                     },
                     raw_provider_response=raw_response,
                     is_retryable=False,
@@ -202,26 +216,47 @@ class OpenAIStyleProvider(LLMProvider):
                 from urllib3 import exceptions as u3e
             except Exception:
                 u3e = None
-            is_timeout = u3e and isinstance(e, (getattr(u3e, 'TimeoutError', tuple()), getattr(u3e, 'ReadTimeoutError', tuple()), getattr(u3e, 'ConnectTimeoutError', tuple())))
-            is_ssl = u3e and isinstance(e, getattr(u3e, 'SSLError', tuple()))
-            is_location = u3e and isinstance(e, getattr(u3e, 'LocationParseError', tuple()))
+            is_timeout = u3e and isinstance(
+                e,
+                (
+                    getattr(u3e, "TimeoutError", tuple()),
+                    getattr(u3e, "ReadTimeoutError", tuple()),
+                    getattr(u3e, "ConnectTimeoutError", tuple()),
+                ),
+            )
+            is_ssl = u3e and isinstance(e, getattr(u3e, "SSLError", tuple()))
+            is_location = u3e and isinstance(
+                e, getattr(u3e, "LocationParseError", tuple())
+            )
             if is_timeout:
                 return LLMResponse(
                     success=False,
-                    error_info={"type": "timeout", "message": str(e), "exception": str(e)},
+                    error_info={
+                        "type": "timeout",
+                        "message": str(e),
+                        "exception": str(e),
+                    },
                     is_retryable=True,
                     context=context,
                 )
             if is_ssl or is_location:
                 return LLMResponse(
                     success=False,
-                    error_info={"type": "network_error", "message": str(e), "exception": str(e)},
+                    error_info={
+                        "type": "network_error",
+                        "message": str(e),
+                        "exception": str(e),
+                    },
                     is_retryable=False,
                     context=context,
                 )
             return LLMResponse(
                 success=False,
-                error_info={"type": "network_error", "message": str(e), "exception": str(e)},
+                error_info={
+                    "type": "network_error",
+                    "message": str(e),
+                    "exception": str(e),
+                },
                 is_retryable=True,
                 context=context,
             )
@@ -237,7 +272,11 @@ class OpenAIStyleProvider(LLMProvider):
         # Try to obtain text/bytes
         try:
             if hasattr(response, "data"):
-                error_text = response.data.decode("utf-8", errors="ignore") if isinstance(response.data, (bytes, bytearray)) else str(response.data)
+                error_text = (
+                    response.data.decode("utf-8", errors="ignore")
+                    if isinstance(response.data, (bytes, bytearray))
+                    else str(response.data)
+                )
             elif hasattr(response, "text"):
                 error_text = response.text
         except Exception:
@@ -267,10 +306,10 @@ class OpenAIStyleProvider(LLMProvider):
         )
 
     def _extract_error_message(self, error_json, response) -> str:
-        if error_json and 'error' in error_json:
-            error_obj = error_json['error']
-            if isinstance(error_obj, dict) and 'message' in error_obj:
-                return error_obj['message']
+        if error_json and "error" in error_json:
+            error_obj = error_json["error"]
+            if isinstance(error_obj, dict) and "message" in error_obj:
+                return error_obj["message"]
             return str(error_obj)
 
         status = getattr(response, "status_code", "unknown")
@@ -278,17 +317,17 @@ class OpenAIStyleProvider(LLMProvider):
         return f"Error (HTTP {status}): {text[:200]}"
 
     def _has_content_filter_error(self, response) -> bool:
-        if 'choices' in response and response['choices']:
-            choice = response['choices'][0]
-            if choice.get('finish_reason') == 'content_filter' or 'error' in choice:
+        if "choices" in response and response["choices"]:
+            choice = response["choices"][0]
+            if choice.get("finish_reason") == "content_filter" or "error" in choice:
                 return True
         return False
 
     def _extract_content_filter_error(self, response) -> Dict[str, str]:
-        choice = response['choices'][0]
-        if 'error' in choice:
-            error_obj = choice['error']
-            message = error_obj.get('message', 'Content filtered')
+        choice = response["choices"][0]
+        if "error" in choice:
+            error_obj = choice["error"]
+            message = error_obj.get("message", "Content filtered")
         else:
             message = "Response stopped due to content filter"
 
@@ -332,7 +371,7 @@ class OpenAIStyleProvider(LLMProvider):
                     continue
                 line = raw_line.strip()
                 if line.startswith("data:"):
-                    line = line[len("data:"):].strip()
+                    line = line[len("data:") :].strip()
                 if line == "[DONE]":
                     break
                 # Some servers may send comments or keepalives starting with ':'
@@ -361,7 +400,9 @@ class OpenAIStyleProvider(LLMProvider):
                         if content_piece:
                             aggregated_content += content_piece
                         # Some providers might stream full messages per chunk
-                        if not content_piece and isinstance(choice0.get("message"), dict):
+                        if not content_piece and isinstance(
+                            choice0.get("message"), dict
+                        ):
                             msg_content = choice0["message"].get("content")
                             if msg_content:
                                 aggregated_content += msg_content
@@ -392,7 +433,10 @@ class OpenAIStyleProvider(LLMProvider):
             if (aggregated_content or "").strip() == "":
                 return LLMResponse(
                     success=False,
-                    error_info={"type": "content_filter", "message": "Response contained no content."},
+                    error_info={
+                        "type": "content_filter",
+                        "message": "Response contained no content.",
+                    },
                     raw_provider_response=last_event,
                     is_retryable=False,
                     context=context,
@@ -407,7 +451,9 @@ class OpenAIStyleProvider(LLMProvider):
             )
         except Exception as e:
             msg = str(e).lower()
-            err_type = "timeout" if "timed out" in msg or "timeout" in msg else "network_error"
+            err_type = (
+                "timeout" if "timed out" in msg or "timeout" in msg else "network_error"
+            )
             return LLMResponse(
                 success=False,
                 error_info={
@@ -452,7 +498,7 @@ class OpenAIStyleProvider(LLMProvider):
                     if line.startswith(":"):
                         continue
                     if line.startswith("data:"):
-                        payload = line[len("data:"):].strip()
+                        payload = line[len("data:") :].strip()
                     else:
                         payload = line
                     if payload == "[DONE]":
@@ -470,7 +516,10 @@ class OpenAIStyleProvider(LLMProvider):
                         if (aggregated_content or "").strip() == "":
                             return LLMResponse(
                                 success=False,
-                                error_info={"type": "content_filter", "message": "Response contained no content."},
+                                error_info={
+                                    "type": "content_filter",
+                                    "message": "Response contained no content.",
+                                },
                                 raw_provider_response=last_event,
                                 is_retryable=False,
                                 context=context,
@@ -517,7 +566,9 @@ class OpenAIStyleProvider(LLMProvider):
                             content_piece = delta.get("content")
                             if content_piece:
                                 aggregated_content += content_piece
-                            if not content_piece and isinstance(choice0.get("message"), dict):
+                            if not content_piece and isinstance(
+                                choice0.get("message"), dict
+                            ):
                                 msg_content = choice0["message"].get("content")
                                 if msg_content:
                                     aggregated_content += msg_content
@@ -549,7 +600,10 @@ class OpenAIStyleProvider(LLMProvider):
             if (aggregated_content or "").strip() == "":
                 return LLMResponse(
                     success=False,
-                    error_info={"type": "content_filter", "message": "Response contained no content."},
+                    error_info={
+                        "type": "content_filter",
+                        "message": "Response contained no content.",
+                    },
                     raw_provider_response=last_event,
                     is_retryable=False,
                     context=context,
@@ -566,15 +620,27 @@ class OpenAIStyleProvider(LLMProvider):
                 from urllib3 import exceptions as u3e
             except Exception:
                 u3e = None
-            is_timeout = u3e and isinstance(e, (getattr(u3e, 'TimeoutError', tuple()), getattr(u3e, 'ReadTimeoutError', tuple()), getattr(u3e, 'ConnectTimeoutError', tuple())))
-            is_ssl = u3e and isinstance(e, getattr(u3e, 'SSLError', tuple()))
-            is_location = u3e and isinstance(e, getattr(u3e, 'LocationParseError', tuple()))
+            is_timeout = u3e and isinstance(
+                e,
+                (
+                    getattr(u3e, "TimeoutError", tuple()),
+                    getattr(u3e, "ReadTimeoutError", tuple()),
+                    getattr(u3e, "ConnectTimeoutError", tuple()),
+                ),
+            )
+            is_ssl = u3e and isinstance(e, getattr(u3e, "SSLError", tuple()))
+            is_location = u3e and isinstance(
+                e, getattr(u3e, "LocationParseError", tuple())
+            )
             if is_timeout:
-                err_type = 'timeout'; retryable = True
+                err_type = "timeout"
+                retryable = True
             elif is_ssl or is_location:
-                err_type = 'network_error'; retryable = False
+                err_type = "network_error"
+                retryable = False
             else:
-                err_type = 'network_error'; retryable = True
+                err_type = "network_error"
+                retryable = True
             return LLMResponse(
                 success=False,
                 error_info={"type": err_type, "message": str(e), "exception": str(e)},

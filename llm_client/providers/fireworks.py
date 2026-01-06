@@ -1,6 +1,7 @@
 """
 Fireworks AI provider implementation for LLM client.
 """
+
 from .openai_style import OpenAIStyleProvider
 
 FIREWORKS_API_BASE = "https://api.fireworks.ai/inference/v1"

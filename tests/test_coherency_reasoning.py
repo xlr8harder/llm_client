@@ -17,13 +17,22 @@ def make_response(raw, content="ok", finish_reason="stop"):
 class TestCoherencyReasoning(unittest.TestCase):
     def test_reasoning_enabled_requires_thinking(self):
         # Mock retry_request to return a response WITHOUT reasoning fields
-        def fake_retry_request(provider, messages, model_id, max_retries=4, context=None, **options):
+        def fake_retry_request(
+            provider, messages, model_id, max_retries=4, context=None, **options
+        ):
             raw = {
                 "id": "x",
                 "choices": [
-                    {"message": {"role": "assistant", "content": "Hello"}, "finish_reason": "stop"}
+                    {
+                        "message": {"role": "assistant", "content": "Hello"},
+                        "finish_reason": "stop",
+                    }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
             }
             return make_response(raw)
 
@@ -36,13 +45,17 @@ class TestCoherencyReasoning(unittest.TestCase):
                 request_overrides={"reasoning": {"enabled": True}},
             )
 
-            result = tester.test_model({"id": "t1", "prompt": "hi"}, provider_filter=None)
-            self.assertFalse(result["success"]) 
+            result = tester.test_model(
+                {"id": "t1", "prompt": "hi"}, provider_filter=None
+            )
+            self.assertFalse(result["success"])
             self.assertIn("Reasoning expected", result.get("error", ""))
 
     def test_reasoning_disabled_disallows_thinking(self):
         # Mock retry_request to return a response WITH reasoning fields
-        def fake_retry_request(provider, messages, model_id, max_retries=4, context=None, **options):
+        def fake_retry_request(
+            provider, messages, model_id, max_retries=4, context=None, **options
+        ):
             raw = {
                 "id": "x",
                 "choices": [
@@ -55,7 +68,11 @@ class TestCoherencyReasoning(unittest.TestCase):
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
             }
             return make_response(raw)
 
@@ -68,21 +85,30 @@ class TestCoherencyReasoning(unittest.TestCase):
                 request_overrides={"reasoning": {"enabled": False}},
             )
 
-            result = tester.test_model({"id": "t1", "prompt": "hi"}, provider_filter=None)
-            self.assertFalse(result["success"]) 
+            result = tester.test_model(
+                {"id": "t1", "prompt": "hi"}, provider_filter=None
+            )
+            self.assertFalse(result["success"])
             self.assertIn("Reasoning not expected", result.get("error", ""))
 
     def test_reasoning_enabled_accepts_token_only(self):
         # When reasoning is enabled, having reasoning tokens in usage should count
-        def fake_retry_request(provider, messages, model_id, max_retries=4, context=None, **options):
+        def fake_retry_request(
+            provider, messages, model_id, max_retries=4, context=None, **options
+        ):
             if model_id == "judge-yes":
                 # Judge says the answer is coherent
-                return make_response({"id": "judge", "choices": [], "usage": {}}, content="YES")
+                return make_response(
+                    {"id": "judge", "choices": [], "usage": {}}, content="YES"
+                )
             # Target provider: no explicit message-level reasoning, but tokens recorded
             raw = {
                 "id": "x",
                 "choices": [
-                    {"message": {"role": "assistant", "content": "Hello"}, "finish_reason": "stop"}
+                    {
+                        "message": {"role": "assistant", "content": "Hello"},
+                        "finish_reason": "stop",
+                    }
                 ],
                 "usage": {
                     "prompt_tokens": 1,
@@ -104,16 +130,25 @@ class TestCoherencyReasoning(unittest.TestCase):
                 request_overrides={"reasoning": {"enabled": True}},
             )
 
-            result = tester.test_model({"id": "t1", "prompt": "hi"}, provider_filter=None)
-            self.assertTrue(result["success"])  # passes reasoning gate and judge returns YES
+            result = tester.test_model(
+                {"id": "t1", "prompt": "hi"}, provider_filter=None
+            )
+            self.assertTrue(
+                result["success"]
+            )  # passes reasoning gate and judge returns YES
 
     def test_reasoning_disabled_rejects_token_only(self):
         # When reasoning is disabled, having reasoning tokens should cause a failure
-        def fake_retry_request(provider, messages, model_id, max_retries=4, context=None, **options):
+        def fake_retry_request(
+            provider, messages, model_id, max_retries=4, context=None, **options
+        ):
             raw = {
                 "id": "x",
                 "choices": [
-                    {"message": {"role": "assistant", "content": "Hello"}, "finish_reason": "stop"}
+                    {
+                        "message": {"role": "assistant", "content": "Hello"},
+                        "finish_reason": "stop",
+                    }
                 ],
                 "usage": {
                     "prompt_tokens": 1,
@@ -133,8 +168,10 @@ class TestCoherencyReasoning(unittest.TestCase):
                 request_overrides={"reasoning": {"enabled": False}},
             )
 
-            result = tester.test_model({"id": "t1", "prompt": "hi"}, provider_filter=None)
-            self.assertFalse(result["success"]) 
+            result = tester.test_model(
+                {"id": "t1", "prompt": "hi"}, provider_filter=None
+            )
+            self.assertFalse(result["success"])
             self.assertIn("Reasoning not expected", result.get("error", ""))
 
 

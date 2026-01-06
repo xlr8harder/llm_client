@@ -1,4 +1,5 @@
 """Retry logic for LLM API requests."""
+
 import logging
 import random
 import threading
@@ -20,7 +21,7 @@ def retry_request(
 ):
     """
     Higher-level function that handles retries
-    
+
     Args:
         provider: LLMProvider instance
         messages: Messages to send
@@ -33,7 +34,7 @@ def retry_request(
         verbose: When True, emit retry progress messages via the provided logger
         logger: Optional ``logging.Logger`` instance to use when ``verbose`` is True
         **options: Additional provider-specific options
-        
+
     Returns:
         Final LLMResponse object (either successful or last failed attempt)
     """
@@ -44,47 +45,44 @@ def retry_request(
     def _log(message):
         if verbose:
             log.info(message)
-    
+
     while retries <= max_retries:
         thread_id = threading.get_ident()
         if retries > 0:
             _log(f"[Thread-{thread_id}] Retry attempt {retries}/{max_retries}")
-            
+
         response = provider.make_chat_completion_request(
-            messages=messages, 
-            model_id=model_id,
-            context=context,
-            **options
+            messages=messages, model_id=model_id, context=context, **options
         )
-        
+
         if response.success or not response.is_retryable:
             return response
-            
+
         last_response = response
         retries += 1
-        
+
         if retries <= max_retries:
             # Calculate backoff with jitter
             delay = min(initial_delay * (backoff_factor ** (retries - 1)), 60)
             actual_delay = delay * (1 + random.uniform(-jitter, jitter))
-            
+
             error_msg = "Unknown error"
             if response.error_info and "message" in response.error_info:
                 error_msg = response.error_info["message"]
-                
+
             _log(
                 f"[Thread-{thread_id}] Request failed with retryable error: {error_msg}. "
                 f"Waiting {actual_delay:.2f}s before retry."
             )
-                  
+
             time.sleep(actual_delay)
-    
+
     # We've exhausted retries
     if last_response:
         # Mark as no longer retryable since we've exhausted attempts
         last_response.is_retryable = False
-        
+
         if last_response.error_info:
             last_response.error_info["max_retries_exceeded"] = True
-    
+
     return last_response

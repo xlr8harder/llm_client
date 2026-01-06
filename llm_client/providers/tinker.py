@@ -40,14 +40,20 @@ class TinkerProvider(LLMProvider):
         # Override to avoid forcing any environment variable for local usage.
         return None
 
-    def make_chat_completion_request(self, messages, model_id, context=None, **options) -> LLMResponse:
+    def make_chat_completion_request(
+        self, messages, model_id, context=None, **options
+    ) -> LLMResponse:
         try:
             tinker, renderers, get_tokenizer = self._lazy_imports()
 
             timeout = options.pop("timeout", None)
-            base_url = options.pop("base_url", None) or options.pop("tinker_base_url", None)
+            base_url = options.pop("base_url", None) or options.pop(
+                "tinker_base_url", None
+            )
 
-            base_model, renderer_name, tinker_path = self._parse_model_id(model_id=model_id, options=options)
+            base_model, renderer_name, tinker_path = self._parse_model_id(
+                model_id=model_id, options=options
+            )
 
             tokenizer = get_tokenizer(base_model)
             renderer = renderers.get_renderer(name=renderer_name, tokenizer=tokenizer)
@@ -70,23 +76,34 @@ class TinkerProvider(LLMProvider):
                 stop=stop,
             )
 
-            service_client = tinker.ServiceClient(base_url=base_url) if base_url else tinker.ServiceClient()
+            service_client = (
+                tinker.ServiceClient(base_url=base_url)
+                if base_url
+                else tinker.ServiceClient()
+            )
             if tinker_path:
                 sampling_client = service_client.create_sampling_client(
                     model_path=tinker_path,
                     base_model=base_model,
                 )
             else:
-                sampling_client = service_client.create_sampling_client(base_model=base_model)
+                sampling_client = service_client.create_sampling_client(
+                    base_model=base_model
+                )
 
-            future = sampling_client.sample(prompt=prompt, sampling_params=sampling_params, num_samples=1)
+            future = sampling_client.sample(
+                prompt=prompt, sampling_params=sampling_params, num_samples=1
+            )
             result = future.result(timeout=timeout) if timeout else future.result()
 
             sequences = getattr(result, "sequences", None) or []
             if not sequences:
                 return LLMResponse(
                     success=False,
-                    error_info={"type": "provider_error", "message": "Tinker sampling returned no sequences"},
+                    error_info={
+                        "type": "provider_error",
+                        "message": "Tinker sampling returned no sequences",
+                    },
                     raw_provider_response={"result": repr(result)},
                     is_retryable=True,
                     context=context,
@@ -134,7 +151,11 @@ class TinkerProvider(LLMProvider):
 
             raw_response = {
                 "sequences": [{"tokens": tokens}],
-                "tinker": {"base_model": base_model, "model_path": tinker_path, "renderer": renderer_name},
+                "tinker": {
+                    "base_model": base_model,
+                    "model_path": tinker_path,
+                    "renderer": renderer_name,
+                },
             }
             if thinking:
                 raw_response["thinking"] = thinking
@@ -149,7 +170,11 @@ class TinkerProvider(LLMProvider):
         except Exception as e:
             return LLMResponse(
                 success=False,
-                error_info={"type": "provider_error", "message": str(e), "exception": str(e)},
+                error_info={
+                    "type": "provider_error",
+                    "message": str(e),
+                    "exception": str(e),
+                },
                 raw_provider_response=None,
                 is_retryable=False,
                 context=context,
@@ -173,12 +198,20 @@ class TinkerProvider(LLMProvider):
 
         # SamplingParams is present on modern tinker versions; rely on it directly.
         if not hasattr(tinker, "SamplingParams"):
-            raise ImportError("Installed 'tinker' package does not expose SamplingParams")
+            raise ImportError(
+                "Installed 'tinker' package does not expose SamplingParams"
+            )
 
         return tinker, renderers, get_tokenizer
 
-    def _parse_model_id(self, model_id: str, options: Dict[str, Any]) -> Tuple[str, str, Optional[str]]:
-        default_renderer = options.pop("renderer", None) or options.pop("renderer_name", None) or "role_colon"
+    def _parse_model_id(
+        self, model_id: str, options: Dict[str, Any]
+    ) -> Tuple[str, str, Optional[str]]:
+        default_renderer = (
+            options.pop("renderer", None)
+            or options.pop("renderer_name", None)
+            or "role_colon"
+        )
 
         if "::" in model_id:
             parts = model_id.split("::")
@@ -188,13 +221,19 @@ class TinkerProvider(LLMProvider):
             if len(parts) == 3:
                 base_model, renderer_name, tinker_path = parts
                 return base_model, renderer_name, tinker_path
-            raise ValueError("Invalid tinker model_id. Expected '<base>::<path>' or '<base>::<renderer>::<path>'")
+            raise ValueError(
+                "Invalid tinker model_id. Expected '<base>::<path>' or '<base>::<renderer>::<path>'"
+            )
 
         # If the model_id itself is a tinker path, base_model must be provided in options.
         if model_id.startswith("tinker://"):
-            base_model = options.pop("base_model", None) or options.pop("base_model_name", None)
+            base_model = options.pop("base_model", None) or options.pop(
+                "base_model_name", None
+            )
             if not base_model:
-                raise ValueError("For model_id like 'tinker://...', pass base_model='...' in options")
+                raise ValueError(
+                    "For model_id like 'tinker://...', pass base_model='...' in options"
+                )
             return str(base_model), str(default_renderer), model_id
 
         # Otherwise treat model_id as a base model name and sample it directly.

@@ -1,6 +1,7 @@
 """
 Moonshot provider implementation for LLM client.
 """
+
 from .openai_style import OpenAIStyleProvider
 
 MOONSHOT_API_BASE = "https://api.moonshot.ai/v1"

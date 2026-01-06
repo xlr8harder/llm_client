@@ -10,7 +10,8 @@ def make_failed_response(err_message, raw=None, status_code=404):
         success=False,
         standardized_response=None,
         error_info={"message": err_message, "status_code": status_code},
-        raw_provider_response=raw or {"error": {"message": err_message, "code": status_code}},
+        raw_provider_response=raw
+        or {"error": {"message": err_message, "code": status_code}},
         is_retryable=False,
     )
 
@@ -34,14 +35,23 @@ class TestForcedSubprovider(unittest.TestCase):
             return_value=[],
         ):
             # Force a subprovider and make the request fail as OpenRouter would when endpoints are missing
-            def fake_retry_request(provider, messages, model_id, max_retries=4, context=None, **options):
+            def fake_retry_request(
+                provider, messages, model_id, max_retries=4, context=None, **options
+            ):
                 return make_failed_response(
                     "No endpoints found for deepseek/deepseek-chat-v3.1.",
-                    raw={"error": {"message": "No endpoints found for deepseek/deepseek-chat-v3.1.", "code": 404}},
+                    raw={
+                        "error": {
+                            "message": "No endpoints found for deepseek/deepseek-chat-v3.1.",
+                            "code": 404,
+                        }
+                    },
                     status_code=404,
                 )
 
-            with patch("llm_client.testing.coherency.retry_request", fake_retry_request):
+            with patch(
+                "llm_client.testing.coherency.retry_request", fake_retry_request
+            ):
                 tester = CoherencyTester(
                     target_provider_name="openrouter",
                     target_model_id="deepseek/deepseek-chat-v3.1",

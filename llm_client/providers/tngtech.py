@@ -1,6 +1,7 @@
 """
 TNGTech provider implementation for LLM client.
 """
+
 from .openai_style import OpenAIStyleProvider
 
 API_BASE = "https://chat.model.tngtech.com/v1"
