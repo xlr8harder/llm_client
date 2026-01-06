@@ -16,14 +16,11 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     "pytest>=9.0.2",
+    "requests>=2.0",
     "urllib3>=1.26.0",
 ]
 
 [project.optional-dependencies]
-# Test/dev dependencies (not required at runtime).
-dev = [
-    "requests>=2.0",
-]
 
 # Optional dependencies for the `tinker` provider.
 # `tinker` is available on PyPI. `tinker_cookbook` is from xlr8harder fork (has normalize_weights).
