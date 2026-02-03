@@ -10,6 +10,7 @@ from .google import GoogleProvider
 from .tngtech import TNGTechProvider
 from .xai import XAIProvider
 from .moonshot import MoonshotProvider
+from .stepfun import StepfunProvider
 from .tinker import TinkerProvider
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "TNGTechProvider",
     "XAIProvider",
     "MoonshotProvider",
+    "StepfunProvider",
     "TinkerProvider",
 ]

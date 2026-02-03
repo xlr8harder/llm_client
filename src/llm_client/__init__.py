@@ -13,6 +13,7 @@ from .providers import (
     TNGTechProvider,
     XAIProvider,
     MoonshotProvider,
+    StepfunProvider,
     TinkerProvider,
 )
 
@@ -26,10 +27,11 @@ PROVIDER_MAP = {
     "tngtech": TNGTechProvider,
     "xai": XAIProvider,
     "moonshot": MoonshotProvider,
+    "stepfun": StepfunProvider,
     "tinker": TinkerProvider,
 }
 
-__version__ = "0.1.22"
+__version__ = "0.1.23"
 
 
 def get_provider(provider_name):
@@ -67,5 +69,6 @@ __all__ = [
     "TNGTechProvider",
     "XAIProvider",
     "MoonshotProvider",
+    "StepfunProvider",
     "TinkerProvider",
 ]
