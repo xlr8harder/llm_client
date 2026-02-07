@@ -31,7 +31,7 @@ PROVIDER_MAP = {
     "tinker": TinkerProvider,
 }
 
-__version__ = "0.1.23"
+__version__ = "0.1.24"
 
 
 def get_provider(provider_name):

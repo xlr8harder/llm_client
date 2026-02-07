@@ -37,8 +37,8 @@ DEFAULT_TEST_PROMPTS = [
 ]
 
 # Default judge configuration
-DEFAULT_JUDGE_MODEL = "gpt-4o-2024-08-06"
-DEFAULT_JUDGE_PROVIDER = "openai"
+DEFAULT_JUDGE_MODEL = "openai/gpt-4o-2024-08-06"
+DEFAULT_JUDGE_PROVIDER = "openrouter"
 
 
 class CoherencyTester:
