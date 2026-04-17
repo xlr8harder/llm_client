@@ -135,6 +135,32 @@ response = retry_request(
 )
 ```
 
+## OpenRouter Anthropic Messages API
+
+OpenRouter also exposes an Anthropic Messages-compatible API. Use `request_format="anthropic_messages"` when a model needs native Anthropic request fields such as adaptive thinking.
+
+```python
+from llm_client import get_provider, retry_request
+
+provider = get_provider("openrouter")
+
+response = retry_request(
+    provider=provider,
+    messages=[{"role": "user", "content": "Solve this carefully."}],
+    model_id="anthropic/claude-opus-4.7",
+    request_format="anthropic_messages",
+    thinking={"type": "adaptive"},
+    output_config={"effort": "high"},
+    max_tokens=16000,
+)
+
+print(response.request_format)       # anthropic_messages
+print(response.raw_response_format)  # openrouter.anthropic_messages
+print(response.standardized_response["content"])
+```
+
+The raw provider payload is preserved unchanged in `raw_provider_response`. The response object carries `request_format` and `raw_response_format` so downstream code can tell which raw schema it received without mutating the raw payload.
+
 ## Coherency Testing
 
 The coherency tester works with any provider, but it is primarily useful for OpenRouter.

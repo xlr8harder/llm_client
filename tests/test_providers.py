@@ -706,6 +706,137 @@ class TestProviders(unittest.TestCase):
         self.assertEqual(data["provider"]["ignore"], ["deepinfra"])
 
     @patch("urllib3.PoolManager.request")
+    def test_openrouter_anthropic_messages_request(self, mock_request):
+        """OpenRouter can call /messages and preserve native response shape."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        raw_response = {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "model": "anthropic/claude-opus-4.7",
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "internal notes",
+                    "signature": "sig_123",
+                },
+                {"type": "text", "text": "Final answer."},
+                {"type": "redacted_thinking", "data": "encrypted_blob"},
+            ],
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 11, "output_tokens": 22},
+        }
+        mock_request.return_value = U3Resp(200, raw_response)
+
+        provider = get_provider("openrouter")
+        response = provider.make_request(
+            messages=[
+                {"role": "system", "content": "System A"},
+                {"role": "system", "content": "System B"},
+                {"role": "user", "content": "Test message"},
+            ],
+            model_id="anthropic/claude-opus-4.7",
+            request_format="anthropic_messages",
+            max_tokens=123,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "high"},
+            allow_list=["anthropic"],
+        )
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/messages"))
+        data = json.loads(kwargs["body"].decode("utf-8"))
+        self.assertEqual(data["model"], "anthropic/claude-opus-4.7")
+        self.assertEqual(data["messages"], [{"role": "user", "content": "Test message"}])
+        self.assertEqual(data["system"], "System A\n\nSystem B")
+        self.assertEqual(data["max_tokens"], 123)
+        self.assertEqual(data["thinking"], {"type": "adaptive"})
+        self.assertEqual(data["output_config"], {"effort": "high"})
+        self.assertEqual(data["provider"]["order"], ["anthropic"])
+        self.assertFalse(data["provider"]["allow_fallbacks"])
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.request_format, "anthropic_messages")
+        self.assertEqual(response.raw_response_format, "openrouter.anthropic_messages")
+        self.assertEqual(response.raw_provider_response, raw_response)
+        self.assertEqual(response.standardized_response["content"], "Final answer.")
+        self.assertEqual(response.standardized_response["finish_reason"], "end_turn")
+        self.assertEqual(response.standardized_response["usage"]["prompt_tokens"], 11)
+        self.assertEqual(response.standardized_response["usage"]["completion_tokens"], 22)
+        self.assertEqual(response.standardized_response["usage"]["total_tokens"], 33)
+        self.assertEqual(response.standardized_response["reasoning"], "internal notes")
+        self.assertEqual(
+            [d["type"] for d in response.standardized_response["reasoning_details"]],
+            ["reasoning.text", "reasoning.encrypted"],
+        )
+
+    @patch("urllib3.PoolManager.request")
+    def test_openrouter_anthropic_messages_provider_ignore(self, mock_request):
+        """Provider routing options also work on /messages requests."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "msg_123",
+                "role": "assistant",
+                "model": "anthropic/claude-opus-4.7",
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {},
+            },
+        )
+
+        provider = get_provider("openrouter")
+        provider.make_request(
+            messages=[{"role": "user", "content": "Test message"}],
+            model_id="anthropic/claude-opus-4.7",
+            request_format="anthropic_messages",
+            ignore_list=["deepinfra"],
+        )
+
+        data = json.loads(mock_request.call_args.kwargs["body"].decode("utf-8"))
+        self.assertEqual(data["provider"]["ignore"], ["deepinfra"])
+
+    def test_openrouter_anthropic_messages_rejects_streaming(self):
+        provider = get_provider("openrouter")
+        response = provider.make_request(
+            messages=[{"role": "user", "content": "Test message"}],
+            model_id="anthropic/claude-opus-4.7",
+            request_format="anthropic_messages",
+            transport="stream",
+        )
+
+        self.assertFalse(response.success)
+        self.assertEqual(response.error_info["type"], "invalid_option")
+        self.assertEqual(response.request_format, "anthropic_messages")
+        self.assertEqual(response.raw_response_format, "llm_client.error")
+
+    def test_openrouter_unknown_request_format(self):
+        provider = get_provider("openrouter")
+        response = provider.make_request(
+            messages=[{"role": "user", "content": "Test message"}],
+            model_id="test-model",
+            request_format="responses",
+        )
+
+        self.assertFalse(response.success)
+        self.assertEqual(response.error_info["type"], "invalid_option")
+        self.assertEqual(response.request_format, "responses")
+        self.assertEqual(response.raw_response_format, "llm_client.error")
+
+    @patch("urllib3.PoolManager.request")
     def test_google_request(self, mock_request):
         """Test Google provider request"""
 
@@ -914,12 +1045,18 @@ class TestLLMResponse(unittest.TestCase):
             raw_provider_response={
                 "choices": [{"message": {"content": "Test response"}}]
             },
+            request_format="chat_completions",
+            raw_response_format="openrouter.chat_completions",
             context={"test_id": "123"},
         )
 
         self.assertTrue(successful_response.success)
         self.assertEqual(
             successful_response.standardized_response["content"], "Test response"
+        )
+        self.assertEqual(successful_response.request_format, "chat_completions")
+        self.assertEqual(
+            successful_response.raw_response_format, "openrouter.chat_completions"
         )
         self.assertEqual(successful_response.context["test_id"], "123")
 

@@ -17,6 +17,7 @@ def retry_request(
     context=None,
     verbose=False,
     logger=None,
+    request_format="chat_completions",
     **options,
 ):
     """
@@ -33,6 +34,7 @@ def retry_request(
         context: Optional context object
         verbose: When True, emit retry progress messages via the provided logger
         logger: Optional ``logging.Logger`` instance to use when ``verbose`` is True
+        request_format: Provider request format to use
         **options: Additional provider-specific options
 
     Returns:
@@ -51,9 +53,20 @@ def retry_request(
         if retries > 0:
             _log(f"[Thread-{thread_id}] Retry attempt {retries}/{max_retries}")
 
-        response = provider.make_chat_completion_request(
-            messages=messages, model_id=model_id, context=context, **options
-        )
+        if hasattr(provider, "make_request"):
+            response = provider.make_request(
+                messages=messages,
+                model_id=model_id,
+                context=context,
+                request_format=request_format,
+                **options,
+            )
+        else:
+            response = provider.make_chat_completion_request(
+                messages=messages, model_id=model_id, context=context, **options
+            )
+            if getattr(response, "request_format", None) is None:
+                response.request_format = request_format
 
         if response.success or not response.is_retryable:
             return response

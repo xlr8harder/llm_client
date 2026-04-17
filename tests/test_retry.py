@@ -277,6 +277,48 @@ class TestRetryMechanism(unittest.TestCase):
 
         mock_logger.info.assert_called()
 
+    def test_retry_request_passes_request_format_to_provider(self):
+        """retry_request dispatches through make_request with request_format."""
+
+        class RecordingProvider(MockProvider):
+            def __init__(self):
+                super().__init__()
+                self.seen_request_format = None
+                self.seen_options = None
+
+            def make_request(
+                self,
+                messages,
+                model_id,
+                context=None,
+                request_format="chat_completions",
+                **options,
+            ):
+                self.call_count += 1
+                self.seen_request_format = request_format
+                self.seen_options = dict(options)
+                return LLMResponse(
+                    success=True,
+                    standardized_response={"content": "ok"},
+                    request_format=request_format,
+                    context=context,
+                )
+
+        provider = RecordingProvider()
+        result = retry_request(
+            provider=provider,
+            messages=[{"role": "user", "content": "ping"}],
+            model_id="test-model",
+            request_format="anthropic_messages",
+            thinking={"type": "adaptive"},
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(provider.call_count, 1)
+        self.assertEqual(provider.seen_request_format, "anthropic_messages")
+        self.assertEqual(provider.seen_options["thinking"], {"type": "adaptive"})
+        self.assertEqual(result.request_format, "anthropic_messages")
+
 
 if __name__ == "__main__":
     unittest.main()

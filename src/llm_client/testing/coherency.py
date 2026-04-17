@@ -278,6 +278,20 @@ Answer ONLY with 'YES' or 'NO'. Do not provide any explanation.
             try:
                 if not isinstance(raw, dict):
                     return False
+                # Native Anthropic Messages responses expose thinking as content blocks.
+                content_blocks = raw.get("content") or []
+                if isinstance(content_blocks, list):
+                    for block in content_blocks:
+                        if not isinstance(block, dict):
+                            continue
+                        block_type = block.get("type")
+                        if block_type == "thinking":
+                            thinking = block.get("thinking") or block.get("text")
+                            if isinstance(thinking, str) and thinking.strip():
+                                return True
+                        if block_type == "redacted_thinking" and block.get("data"):
+                            return True
+
                 # Check message-level reasoning within choices
                 choices = raw.get("choices") or []
                 for ch in choices:

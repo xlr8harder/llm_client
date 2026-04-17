@@ -174,6 +174,71 @@ class TestCoherencyReasoning(unittest.TestCase):
             self.assertFalse(result["success"])
             self.assertIn("Reasoning not expected", result.get("error", ""))
 
+    def test_reasoning_enabled_accepts_native_messages_thinking(self):
+        def fake_retry_request(
+            provider, messages, model_id, max_retries=4, context=None, **options
+        ):
+            if model_id == "judge-yes":
+                return make_response(
+                    {"id": "judge", "choices": [], "usage": {}}, content="YES"
+                )
+            raw = {
+                "id": "msg_123",
+                "content": [
+                    {"type": "thinking", "thinking": "internal notes"},
+                    {"type": "text", "text": "Hello"},
+                ],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 2},
+            }
+            return make_response(raw)
+
+        with patch("llm_client.testing.coherency.retry_request", fake_retry_request):
+            tester = CoherencyTester(
+                target_provider_name="openai",
+                target_model_id="gpt-fake",
+                judge_provider_name="openai",
+                judge_model_id="judge-yes",
+                test_prompts=[{"id": "t1", "prompt": "hi"}],
+                num_workers=1,
+                request_overrides={"reasoning": {"enabled": True}},
+            )
+
+            result = tester.test_model(
+                {"id": "t1", "prompt": "hi"}, provider_filter=None
+            )
+            self.assertTrue(result["success"])
+
+    def test_reasoning_disabled_rejects_native_messages_redacted_thinking(self):
+        def fake_retry_request(
+            provider, messages, model_id, max_retries=4, context=None, **options
+        ):
+            raw = {
+                "id": "msg_123",
+                "content": [
+                    {"type": "redacted_thinking", "data": "encrypted_blob"},
+                    {"type": "text", "text": "Hello"},
+                ],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 2},
+            }
+            return make_response(raw)
+
+        with patch("llm_client.testing.coherency.retry_request", fake_retry_request):
+            tester = CoherencyTester(
+                target_provider_name="openai",
+                target_model_id="gpt-fake",
+                test_prompts=[{"id": "t1", "prompt": "hi"}],
+                num_workers=1,
+                request_overrides={"reasoning": {"enabled": False}},
+            )
+
+            result = tester.test_model(
+                {"id": "t1", "prompt": "hi"}, provider_filter=None
+            )
+            self.assertFalse(result["success"])
+            self.assertIn("Reasoning not expected", result.get("error", ""))
+
 
 if __name__ == "__main__":
     unittest.main()
