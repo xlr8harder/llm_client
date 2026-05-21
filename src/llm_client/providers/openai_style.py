@@ -38,6 +38,9 @@ class OpenAIStyleProvider(LLMProvider):
             "Content-Type": "application/json",
         }
 
+    def _get_chat_completions_url(self) -> str:
+        return f"{self._get_api_base()}/chat/completions"
+
     def make_chat_completion_request(
         self, messages, model_id, context=None, **options
     ) -> LLMResponse:
@@ -100,7 +103,7 @@ class OpenAIStyleProvider(LLMProvider):
                 )
                 u3_resp = http.request(
                     "POST",
-                    f"{self._get_api_base()}/chat/completions",
+                    self._get_chat_completions_url(),
                     body=body_bytes,
                     headers=headers,
                     preload_content=False,
@@ -144,7 +147,7 @@ class OpenAIStyleProvider(LLMProvider):
             )
             u3_resp = http.request(
                 "POST",
-                f"{self._get_api_base()}/chat/completions",
+                self._get_chat_completions_url(),
                 body=body_bytes,
                 headers=headers,
                 preload_content=True,

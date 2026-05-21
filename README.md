@@ -2,7 +2,7 @@
 
 ## Warning: Vibe-coded.
 
-A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google, X.AI) with standardized responses and robust error handling.
+A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google, Google Agent Platform, X.AI) with standardized responses and robust error handling.
 
 ## Features
 
@@ -20,6 +20,7 @@ A clean, modular client library for interacting with various LLM providers (Open
 - Fireworks AI
 - Chutes
 - Google (Gemini models)
+- Google Agent Platform (OpenAI-compatible)
 - X.AI (OpenAI-compatible)
 - Tinker (Sampling API via `tinker` + `tinker_cookbook`)
 
@@ -54,8 +55,16 @@ export OPENROUTER_API_KEY="your-openrouter-key"
 export FIREWORKS_API_KEY="your-fireworks-key"
 export CHUTES_API_TOKEN="your-chutes-token"
 export GEMINI_API_KEY="your-gemini-key"
+export GOOGLE_API_KEY="your-google-agent-platform-key"
+export GOOGLE_AGENT_PLATFORM_PROJECT_ID="your-google-cloud-project-id"
+export GOOGLE_AGENT_PLATFORM_LOCATION="global"
+export GOOGLE_AGENT_PLATFORM_ENDPOINT="openapi"
 export XAI_API_KEY="your-xai-key"
 ```
+
+For Google Agent Platform, use provider name `google_agent_platform` and a
+publisher-qualified OpenAI-compatible model ID, for example
+`xai/grok-4.1-fast-non-reasoning`.
 
 ## Tinker Provider Usage
 

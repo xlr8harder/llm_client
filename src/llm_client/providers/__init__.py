@@ -7,6 +7,7 @@ from .openrouter import OpenRouterProvider
 from .fireworks import FireworksProvider
 from .chutes import ChutesProvider
 from .google import GoogleProvider
+from .google_agent_platform import GoogleAgentPlatformProvider
 from .tngtech import TNGTechProvider
 from .xai import XAIProvider
 from .moonshot import MoonshotProvider
@@ -19,6 +20,7 @@ __all__ = [
     "FireworksProvider",
     "ChutesProvider",
     "GoogleProvider",
+    "GoogleAgentPlatformProvider",
     "TNGTechProvider",
     "XAIProvider",
     "MoonshotProvider",

@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from llm_client import get_provider, LLMResponse
 from llm_client.providers import (
     OpenAIProvider,
+    GoogleAgentPlatformProvider,
     MoonshotProvider,
     TinkerProvider,
 )
@@ -36,6 +37,10 @@ class TestProviders(unittest.TestCase):
                 "FIREWORKS_API_KEY": "mock-fireworks-key",
                 "CHUTES_API_TOKEN": "mock-chutes-token",
                 "GEMINI_API_KEY": "mock-gemini-key",
+                "GOOGLE_API_KEY": "mock-google-agent-platform-key",
+                "GOOGLE_AGENT_PLATFORM_PROJECT_ID": "mock-project",
+                "GOOGLE_AGENT_PLATFORM_LOCATION": "global",
+                "GOOGLE_AGENT_PLATFORM_ENDPOINT": "openapi",
                 "TNGTECH_API_KEY": "mock-tngtech-key",
                 "XAI_API_KEY": "mock-xai-key",
                 "MOONSHOT_API_KEY": "mock-moonshot-key",
@@ -56,6 +61,7 @@ class TestProviders(unittest.TestCase):
             "fireworks",
             "chutes",
             "google",
+            "google_agent_platform",
             "tngtech",
             "xai",
             "moonshot",
@@ -70,6 +76,8 @@ class TestProviders(unittest.TestCase):
         self.assertIsInstance(provider, OpenAIProvider)
         provider = get_provider("Moonshot")
         self.assertIsInstance(provider, MoonshotProvider)
+        provider = get_provider("Google_Agent_Platform")
+        self.assertIsInstance(provider, GoogleAgentPlatformProvider)
 
         # Test invalid provider
         with self.assertRaises(ValueError):
@@ -237,12 +245,93 @@ class TestProviders(unittest.TestCase):
         moonshot_provider = get_provider("moonshot")
         self.assertEqual(moonshot_provider.get_api_key(), "mock-moonshot-key")
 
+        google_agent_platform_provider = get_provider("google_agent_platform")
+        self.assertEqual(
+            google_agent_platform_provider.get_api_key(),
+            "mock-google-agent-platform-key",
+        )
+
         # Test missing API key with a fresh provider instance
         with patch.dict("os.environ", {"OPENAI_API_KEY": ""}):
             # Create a fresh provider instance to avoid cached keys
             fresh_provider = OpenAIProvider()
             with self.assertRaises(ValueError):
                 fresh_provider.get_api_key()
+
+    @patch("urllib3.PoolManager.request")
+    def test_google_agent_platform_successful_request(self, mock_request):
+        """Test successful Agent Platform OpenAI-compatible request."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "agent-platform-123",
+                "object": "chat.completion",
+                "created": 1677858242,
+                "model": "xai/grok-4.1-fast-non-reasoning",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 676,
+                    "completion_tokens": 1,
+                    "completion_tokens_details": {"reasoning_tokens": 0},
+                    "total_tokens": 677,
+                },
+            },
+        )
+
+        provider = get_provider("google_agent_platform")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Reply with exactly: ok"}],
+            model_id="xai/grok-4.1-fast-non-reasoning",
+        )
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.standardized_response["content"], "ok")
+        self.assertEqual(
+            response.standardized_response["model"],
+            "xai/grok-4.1-fast-non-reasoning",
+        )
+        self.assertEqual(
+            response.standardized_response["provider"], "google_agent_platform"
+        )
+
+        _, url = mock_request.call_args.args[:2]
+        headers = mock_request.call_args.kwargs["headers"]
+        self.assertEqual(
+            url,
+            "https://aiplatform.googleapis.com/v1/projects/mock-project/locations/global/endpoints/openapi/chat/completions",
+        )
+        self.assertEqual(
+            headers["x-goog-api-key"], "mock-google-agent-platform-key"
+        )
+        self.assertNotIn("Authorization", headers)
+
+    def test_google_agent_platform_requires_project_id(self):
+        """Agent Platform provider requires its project env var."""
+
+        with patch.dict("os.environ", {"GOOGLE_AGENT_PLATFORM_PROJECT_ID": ""}):
+            provider = get_provider("google_agent_platform")
+            response = provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "Hi"}],
+                model_id="xai/grok-4.1-fast-non-reasoning",
+            )
+
+        self.assertFalse(response.success)
+        self.assertIn(
+            "GOOGLE_AGENT_PLATFORM_PROJECT_ID",
+            (response.error_info or {}).get("message", ""),
+        )
 
     @patch("urllib3.PoolManager.request")
     def test_xai_successful_request(self, mock_request):

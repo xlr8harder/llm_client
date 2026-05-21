@@ -10,6 +10,7 @@ from .providers import (
     FireworksProvider,
     ChutesProvider,
     GoogleProvider,
+    GoogleAgentPlatformProvider,
     TNGTechProvider,
     XAIProvider,
     MoonshotProvider,
@@ -24,6 +25,7 @@ PROVIDER_MAP = {
     "fireworks": FireworksProvider,
     "chutes": ChutesProvider,
     "google": GoogleProvider,
+    "google_agent_platform": GoogleAgentPlatformProvider,
     "tngtech": TNGTechProvider,
     "xai": XAIProvider,
     "moonshot": MoonshotProvider,
@@ -31,7 +33,7 @@ PROVIDER_MAP = {
     "tinker": TinkerProvider,
 }
 
-__version__ = "0.1.25"
+__version__ = "0.1.26"
 
 
 def get_provider(provider_name):
@@ -66,6 +68,7 @@ __all__ = [
     "FireworksProvider",
     "ChutesProvider",
     "GoogleProvider",
+    "GoogleAgentPlatformProvider",
     "TNGTechProvider",
     "XAIProvider",
     "MoonshotProvider",
