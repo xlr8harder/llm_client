@@ -5,7 +5,7 @@ Shared base implementation for OpenAI-compatible providers.
 import json
 from typing import Any, Dict, Optional
 
-from ..base import LLMProvider, LLMResponse
+from ..base import LLMProvider, LLMResponse, with_finish_reason_metadata
 
 
 class OpenAIStyleProvider(LLMProvider):
@@ -326,18 +326,38 @@ class OpenAIStyleProvider(LLMProvider):
                 return True
         return False
 
-    def _extract_content_filter_error(self, response) -> Dict[str, str]:
+    def _extract_content_filter_error(self, response) -> Dict[str, Any]:
         choice = response["choices"][0]
+        finish_reason = choice.get("finish_reason")
+        native_finish_reason = choice.get("native_finish_reason")
         if "error" in choice:
             error_obj = choice["error"]
             message = error_obj.get("message", "Content filtered")
         else:
             message = "Response stopped due to content filter"
 
-        return {
+        error_info: Dict[str, Any] = {
             "type": "content_filter",
             "message": message,
+            "finish_reason": "content_filter",
+            "normalization_evidence": {
+                "finish_reason": {
+                    "source": "choices[0].finish_reason",
+                    "value": finish_reason,
+                    "normalized": "content_filter",
+                }
+            },
         }
+        if native_finish_reason is not None:
+            error_info["native_finish_reason"] = native_finish_reason
+            error_info["normalization_evidence"]["native_finish_reason"] = {
+                "source": "choices[0].native_finish_reason",
+                "value": native_finish_reason,
+                "normalized": "content_filter",
+            }
+        elif finish_reason is not None:
+            error_info["native_finish_reason"] = finish_reason
+        return error_info
 
     def _standardize_response(self, provider_response) -> Dict[str, Any]:
         standardized: Dict[str, Any] = {
@@ -353,7 +373,23 @@ class OpenAIStyleProvider(LLMProvider):
             choice = provider_response["choices"][0]
             if "message" in choice and "content" in choice["message"]:
                 standardized["content"] = choice["message"].get("content")
-            standardized["finish_reason"] = choice.get("finish_reason")
+            finish_reason = choice.get("finish_reason")
+            with_finish_reason_metadata(
+                standardized,
+                source="choices[0].finish_reason",
+                value=finish_reason,
+                normalized=finish_reason,
+            )
+            native_finish_reason = choice.get("native_finish_reason")
+            if native_finish_reason is not None:
+                standardized["native_finish_reason"] = native_finish_reason
+                standardized.setdefault("normalization_evidence", {})[
+                    "native_finish_reason"
+                ] = {
+                    "source": "choices[0].native_finish_reason",
+                    "value": native_finish_reason,
+                    "normalized": finish_reason,
+                }
 
         return standardized
 

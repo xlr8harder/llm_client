@@ -6,6 +6,26 @@ from abc import ABC, abstractmethod
 import os
 
 
+def finish_reason_normalization_evidence(source, value, normalized):
+    """Return standard metadata explaining finish-reason normalization."""
+    return {
+        "source": source,
+        "value": value,
+        "normalized": normalized,
+    }
+
+
+def with_finish_reason_metadata(payload, *, source, value, normalized):
+    """Add standard finish-reason normalization metadata to a response dict."""
+    payload["finish_reason"] = normalized
+    if value is not None:
+        payload["native_finish_reason"] = value
+    payload.setdefault("normalization_evidence", {})["finish_reason"] = (
+        finish_reason_normalization_evidence(source, value, normalized)
+    )
+    return payload
+
+
 class LLMResponse:
     """
     Standard response object for all LLM provider requests.

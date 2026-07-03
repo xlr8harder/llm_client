@@ -4,7 +4,7 @@ Google provider implementation for LLM client.
 
 import json
 
-from ..base import LLMProvider, LLMResponse
+from ..base import LLMProvider, LLMResponse, with_finish_reason_metadata
 
 # API Endpoint Constants
 GOOGLE_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -264,6 +264,13 @@ class GoogleProvider(LLMProvider):
             "message": f"Prompt blocked due to: {block_reason}",
             "block_reason": block_reason,
             "safety_ratings": safety_ratings,
+            "normalization_evidence": {
+                "prompt_block": {
+                    "source": "promptFeedback.blockReason",
+                    "value": block_reason,
+                    "normalized": "content_filter",
+                }
+            },
         }
 
         return LLMResponse(
@@ -310,8 +317,16 @@ class GoogleProvider(LLMProvider):
                 return {
                     "type": "content_filter",
                     "message": f"Response stopped due to: {finish_reason}",
-                    "finish_reason": finish_reason,
+                    "finish_reason": "content_filter",
+                    "native_finish_reason": finish_reason,
                     "safety_ratings": safety_ratings,
+                    "normalization_evidence": {
+                        "finish_reason": {
+                            "source": "candidates[0].finishReason",
+                            "value": finish_reason,
+                            "normalized": "content_filter",
+                        }
+                    },
                 }
 
         # Check for top-level error
@@ -362,9 +377,15 @@ class GoogleProvider(LLMProvider):
                 "OTHER": "error",
                 "UNSPECIFIED": "error",
             }
-            standardized["finish_reason"] = reason_map.get(
+            normalized_finish_reason = reason_map.get(
                 finish_reason_raw,
                 finish_reason_raw.lower() if finish_reason_raw else None,
+            )
+            with_finish_reason_metadata(
+                standardized,
+                source="candidates[0].finishReason",
+                value=finish_reason_raw,
+                normalized=normalized_finish_reason,
             )
 
             # Extract text content

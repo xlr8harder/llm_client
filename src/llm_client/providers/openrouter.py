@@ -5,7 +5,7 @@ OpenRouter provider implementation for LLM client.
 import json
 import os
 
-from ..base import LLMProvider, LLMResponse
+from ..base import LLMProvider, LLMResponse, with_finish_reason_metadata
 
 # API Endpoint Constants
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
@@ -938,13 +938,37 @@ class OpenRouterProvider(LLMProvider):
     def _extract_content_filter_error(self, response):
         """Extract content filter error from response"""
         choice = response["choices"][0]
+        finish_reason = choice.get("finish_reason")
+        native_finish_reason = choice.get("native_finish_reason")
         if "error" in choice:
             error_obj = choice["error"]
             message = error_obj.get("message", "Content filtered")
         else:
             message = "Response stopped due to content filter"
 
-        return {"type": "content_filter", "message": message}
+        error_info = {
+            "type": "content_filter",
+            "message": message,
+            "finish_reason": "content_filter",
+        }
+        if native_finish_reason is not None:
+            error_info["native_finish_reason"] = native_finish_reason
+        elif finish_reason is not None:
+            error_info["native_finish_reason"] = finish_reason
+        error_info["normalization_evidence"] = {
+            "finish_reason": {
+                "source": "choices[0].finish_reason",
+                "value": finish_reason,
+                "normalized": "content_filter",
+            }
+        }
+        if native_finish_reason is not None:
+            error_info["normalization_evidence"]["native_finish_reason"] = {
+                "source": "choices[0].native_finish_reason",
+                "value": native_finish_reason,
+                "normalized": "content_filter",
+            }
+        return error_info
 
     def _standardize_anthropic_messages_response(self, provider_response):
         """Convert an OpenRouter Anthropic Messages response to standard format."""
@@ -1038,7 +1062,23 @@ class OpenRouterProvider(LLMProvider):
             choice = provider_response["choices"][0]
             if "message" in choice and "content" in choice["message"]:
                 standardized["content"] = choice["message"].get("content")
-            standardized["finish_reason"] = choice.get("finish_reason")
+            finish_reason = choice.get("finish_reason")
+            with_finish_reason_metadata(
+                standardized,
+                source="choices[0].finish_reason",
+                value=finish_reason,
+                normalized=finish_reason,
+            )
+            native_finish_reason = choice.get("native_finish_reason")
+            if native_finish_reason is not None:
+                standardized["native_finish_reason"] = native_finish_reason
+                standardized.setdefault("normalization_evidence", {})[
+                    "native_finish_reason"
+                ] = {
+                    "source": "choices[0].native_finish_reason",
+                    "value": native_finish_reason,
+                    "normalized": finish_reason,
+                }
 
         return standardized
 

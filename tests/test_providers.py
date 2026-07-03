@@ -753,6 +753,7 @@ class TestProviders(unittest.TestCase):
                             "content": "This is a test response.",
                         },
                         "finish_reason": "stop",
+                        "native_finish_reason": "stop",
                     }
                 ],
                 "usage": {
@@ -770,6 +771,20 @@ class TestProviders(unittest.TestCase):
             messages=[{"role": "user", "content": "Test message"}],
             model_id="openai/gpt-4o-2024-08-06",
             allow_list=["openai"],
+        )
+        self.assertEqual(response.standardized_response["finish_reason"], "stop")
+        self.assertEqual(
+            response.standardized_response["native_finish_reason"], "stop"
+        )
+        self.assertEqual(
+            response.standardized_response["normalization_evidence"][
+                "native_finish_reason"
+            ],
+            {
+                "source": "choices[0].native_finish_reason",
+                "value": "stop",
+                "normalized": "stop",
+            },
         )
 
         # Check that the request was made with the right parameters
@@ -977,6 +992,15 @@ class TestProviders(unittest.TestCase):
         self.assertEqual(
             response.standardized_response["finish_reason"], "stop"
         )  # Should be standardized
+        self.assertEqual(response.standardized_response["native_finish_reason"], "STOP")
+        self.assertEqual(
+            response.standardized_response["normalization_evidence"]["finish_reason"],
+            {
+                "source": "candidates[0].finishReason",
+                "value": "STOP",
+                "normalized": "stop",
+            },
+        )
 
     @patch("urllib3.PoolManager.request")
     def test_google_content_filter(self, mock_request):
@@ -1025,6 +1049,66 @@ class TestProviders(unittest.TestCase):
         )  # Content filter errors are not retryable
         self.assertEqual(response.error_info["type"], "content_filter")
         self.assertIn("SAFETY", response.error_info["message"])
+        self.assertEqual(response.error_info["finish_reason"], "content_filter")
+        self.assertEqual(response.error_info["native_finish_reason"], "SAFETY")
+        self.assertEqual(
+            response.error_info["normalization_evidence"]["finish_reason"],
+            {
+                "source": "candidates[0].finishReason",
+                "value": "SAFETY",
+                "normalized": "content_filter",
+            },
+        )
+
+    @patch("urllib3.PoolManager.request")
+    def test_google_recitation_is_content_filter_with_evidence(self, mock_request):
+        """Google RECITATION is a non-retryable content filter with raw evidence."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "candidates": [
+                    {
+                        "content": {},
+                        "finishReason": "RECITATION",
+                        "finishMessage": (
+                            "The generated content was filtered because it may "
+                            "contain material that resembles existing copyrighted works."
+                        ),
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 20,
+                    "candidatesTokenCount": 5,
+                    "totalTokenCount": 25,
+                },
+            },
+        )
+
+        provider = get_provider("google")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "Quote a long passage"}],
+            model_id="gemini-1.5-pro",
+        )
+
+        self.assertFalse(response.success)
+        self.assertFalse(response.is_retryable)
+        self.assertEqual(response.error_info["type"], "content_filter")
+        self.assertEqual(response.error_info["finish_reason"], "content_filter")
+        self.assertEqual(response.error_info["native_finish_reason"], "RECITATION")
+        self.assertEqual(
+            response.error_info["normalization_evidence"]["finish_reason"],
+            {
+                "source": "candidates[0].finishReason",
+                "value": "RECITATION",
+                "normalized": "content_filter",
+            },
+        )
 
     @patch("urllib3.PoolManager.request")
     def test_google_prompt_blocked(self, mock_request):
@@ -1064,6 +1148,14 @@ class TestProviders(unittest.TestCase):
         self.assertFalse(response.is_retryable)  # Prompt blocks are not retryable
         self.assertEqual(response.error_info["type"], "content_filter")
         self.assertIn("Prompt blocked", response.error_info["message"])
+        self.assertEqual(
+            response.error_info["normalization_evidence"]["prompt_block"],
+            {
+                "source": "promptFeedback.blockReason",
+                "value": "SAFETY",
+                "normalized": "content_filter",
+            },
+        )
 
     def test_openrouter_provider_methods(self):
         """Test OpenRouter provider-specific methods"""

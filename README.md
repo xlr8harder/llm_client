@@ -302,6 +302,14 @@ All provider responses are standardized to a common format:
     "provider": "openai",  # Provider name
     "content": "Response text here",  # The actual response content
     "finish_reason": "stop",  # Reason the generation stopped
+    "native_finish_reason": "STOP",  # Provider-native reason, if available
+    "normalization_evidence": {
+        "finish_reason": {
+            "source": "choices[0].finish_reason",
+            "value": "STOP",
+            "normalized": "stop",
+        }
+    },
     "usage": {  # Token usage information if available
         "prompt_tokens": 10,
         "completion_tokens": 20,
@@ -309,6 +317,12 @@ All provider responses are standardized to a common format:
     }
 }
 ```
+
+Content-filter stops from safety, policy, license, or recitation filters are
+normalized into `error_info["type"] == "content_filter"` and are non-retryable.
+When the provider exposes the triggering field, `error_info` also includes
+`native_finish_reason` and `normalization_evidence` so callers can inspect why
+the broad bucket was chosen.
 
 ## License
 
