@@ -2,7 +2,7 @@
 
 ## Warning: Vibe-coded.
 
-A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google, Google Agent Platform, X.AI, and local OpenAI-compatible servers) with standardized responses and robust error handling.
+A clean, modular client library for interacting with LLM providers and local OpenAI-compatible servers with standardized responses and robust error handling.
 
 ## Features
 
@@ -21,7 +21,10 @@ A clean, modular client library for interacting with various LLM providers (Open
 - Chutes
 - Google (Gemini models)
 - Google Agent Platform (OpenAI-compatible)
+- TNG Tech (OpenAI-compatible)
 - X.AI (OpenAI-compatible)
+- Moonshot (OpenAI-compatible)
+- Stepfun (OpenAI-compatible)
 - Tinker (Sampling API via `tinker` + `tinker_cookbook`)
 - Local OpenAI-compatible servers such as vLLM, llama.cpp, or llama-cpp-python
 
@@ -44,7 +47,7 @@ uv pip install -e '.[tinker]'
 
 This will install:
 - `tinker` from PyPI
-- `tinker_cookbook` from `git+https://github.com/thinking-machines-lab/tinker-cookbook`
+- `tinker_cookbook` from `git+https://github.com/xlr8harder/tinker-cookbook`
 
 ## Configuration
 
@@ -76,6 +79,20 @@ export LOCAL_LLM_BASE_URL="http://127.0.0.1:8000/v1"
 # Optional; omit this for local servers that do not require Authorization.
 export LOCAL_LLM_API_KEY="your-local-server-key"
 ```
+
+Local provider options follow the same ergonomics as the other providers:
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| Provider name | `local` | `openai_compatible` is an alias for the same provider. |
+| API base | `http://127.0.0.1:8000/v1` | Override with `LOCAL_LLM_BASE_URL`. The trailing slash is optional. |
+| API key | unset | Override with `LOCAL_LLM_API_KEY`. If unset, no `Authorization` header is sent. |
+| Model ID | caller supplied | Use the model name exposed by your local server. |
+
+The local provider uses the shared OpenAI-compatible transport, so request
+options such as `temperature`, `max_tokens`, `timeout`, and
+`transport="stream"` behave like they do for `openai`, `xai`, and other
+OpenAI-style providers.
 
 ```python
 from llm_client import get_provider, retry_request
