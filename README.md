@@ -2,7 +2,7 @@
 
 ## Warning: Vibe-coded.
 
-A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google, Google Agent Platform, X.AI) with standardized responses and robust error handling.
+A clean, modular client library for interacting with various LLM providers (OpenAI, OpenRouter, Fireworks, Chutes, Google, Google Agent Platform, X.AI, and local OpenAI-compatible servers) with standardized responses and robust error handling.
 
 ## Features
 
@@ -23,6 +23,7 @@ A clean, modular client library for interacting with various LLM providers (Open
 - Google Agent Platform (OpenAI-compatible)
 - X.AI (OpenAI-compatible)
 - Tinker (Sampling API via `tinker` + `tinker_cookbook`)
+- Local OpenAI-compatible servers such as vLLM, llama.cpp, or llama-cpp-python
 
 ## Installation
 
@@ -65,6 +66,29 @@ export XAI_API_KEY="your-xai-key"
 For Google Agent Platform, use provider name `google_agent_platform` and a
 publisher-qualified OpenAI-compatible model ID, for example
 `xai/grok-4.1-fast-non-reasoning`.
+
+For local OpenAI-compatible servers, use provider name `local` or
+`openai_compatible`. The default base URL is `http://127.0.0.1:8000/v1`;
+override it when your server listens elsewhere:
+
+```bash
+export LOCAL_LLM_BASE_URL="http://127.0.0.1:8000/v1"
+# Optional; omit this for local servers that do not require Authorization.
+export LOCAL_LLM_API_KEY="your-local-server-key"
+```
+
+```python
+from llm_client import get_provider, retry_request
+
+provider = get_provider("local")
+response = retry_request(
+    provider=provider,
+    messages=[{"role": "user", "content": "Reply with exactly: ok"}],
+    model_id="served-model-name",
+    max_retries=1,
+    timeout=120,
+)
+```
 
 ## Tinker Provider Usage
 

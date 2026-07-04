@@ -19,6 +19,7 @@ from llm_client.providers import (
     GoogleAgentPlatformProvider,
     MoonshotProvider,
     TinkerProvider,
+    LocalProvider,
 )
 from llm_client.providers.openai_style import OpenAIStyleProvider
 
@@ -66,6 +67,8 @@ class TestProviders(unittest.TestCase):
             "xai",
             "moonshot",
             "tinker",
+            "local",
+            "openai_compatible",
         ]
         for name in provider_names:
             provider = get_provider(name)
@@ -78,10 +81,117 @@ class TestProviders(unittest.TestCase):
         self.assertIsInstance(provider, MoonshotProvider)
         provider = get_provider("Google_Agent_Platform")
         self.assertIsInstance(provider, GoogleAgentPlatformProvider)
+        provider = get_provider("Local")
+        self.assertIsInstance(provider, LocalProvider)
+        provider = get_provider("OpenAI_Compatible")
+        self.assertIsInstance(provider, LocalProvider)
 
         # Test invalid provider
         with self.assertRaises(ValueError):
             get_provider("invalid_provider")
+
+    @patch("urllib3.PoolManager.request")
+    def test_local_provider_default_base_without_api_key(self, mock_request):
+        """Local provider defaults to localhost and does not require auth."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "chatcmpl-local-1",
+                "object": "chat.completion",
+                "created": 123,
+                "model": "served-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "local reply"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3,
+                },
+            },
+        )
+
+        with patch.dict(
+            "os.environ",
+            {"LOCAL_LLM_BASE_URL": "", "LOCAL_LLM_API_KEY": ""},
+        ):
+            provider = get_provider("local")
+            response = provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "hello"}],
+                model_id="served-model",
+            )
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.standardized_response["content"], "local reply")
+        self.assertEqual(response.standardized_response["provider"], "local")
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(kwargs["headers"], {"Content-Type": "application/json"})
+
+    @patch("urllib3.PoolManager.request")
+    def test_local_provider_env_base_and_api_key(self, mock_request):
+        """Local provider supports an OpenAI-compatible base URL override."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "chatcmpl-local-2",
+                "object": "chat.completion",
+                "created": 123,
+                "model": "served-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            },
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "LOCAL_LLM_BASE_URL": "http://localhost:11434/v1/",
+                "LOCAL_LLM_API_KEY": "local-key",
+            },
+        ):
+            provider = get_provider("openai_compatible")
+            response = provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "hello"}],
+                model_id="served-model",
+            )
+
+        self.assertTrue(response.success)
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args[1], "http://localhost:11434/v1/chat/completions")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer local-key")
+
+        payload = json.loads(kwargs["body"].decode("utf-8"))
+        self.assertEqual(payload["model"], "served-model")
 
     def test_tinker_provider_mocked_sampling(self):
         """Test Tinker provider with mocked tinker + tinker_cookbook dependencies."""

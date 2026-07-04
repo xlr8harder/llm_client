@@ -13,6 +13,7 @@ from .xai import XAIProvider
 from .moonshot import MoonshotProvider
 from .stepfun import StepfunProvider
 from .tinker import TinkerProvider
+from .local import LocalProvider
 
 __all__ = [
     "OpenAIProvider",
@@ -26,4 +27,5 @@ __all__ = [
     "MoonshotProvider",
     "StepfunProvider",
     "TinkerProvider",
+    "LocalProvider",
 ]

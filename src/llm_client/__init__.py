@@ -16,6 +16,7 @@ from .providers import (
     MoonshotProvider,
     StepfunProvider,
     TinkerProvider,
+    LocalProvider,
 )
 
 # Convenient mapping of provider names to their implementations
@@ -31,9 +32,11 @@ PROVIDER_MAP = {
     "moonshot": MoonshotProvider,
     "stepfun": StepfunProvider,
     "tinker": TinkerProvider,
+    "local": LocalProvider,
+    "openai_compatible": LocalProvider,
 }
 
-__version__ = "0.1.27"
+__version__ = "0.1.28"
 
 
 def get_provider(provider_name):
@@ -74,4 +77,5 @@ __all__ = [
     "MoonshotProvider",
     "StepfunProvider",
     "TinkerProvider",
+    "LocalProvider",
 ]
