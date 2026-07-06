@@ -88,11 +88,16 @@ Local provider options follow the same ergonomics as the other providers:
 | API base | `http://127.0.0.1:8000/v1` | Override with `LOCAL_LLM_BASE_URL`. The trailing slash is optional. |
 | API key | unset | Override with `LOCAL_LLM_API_KEY`. If unset, no `Authorization` header is sent. |
 | Model ID | caller supplied | Use the model name exposed by your local server. |
+| Endpoint model ID | unset | Use `<host>:<port>/<model>` or `local/<host>:<port>/<model>` to address a local endpoint directly. |
 
 The local provider uses the shared OpenAI-compatible transport, so request
 options such as `temperature`, `max_tokens`, `timeout`, and
 `transport="stream"` behave like they do for `openai`, `xai`, and other
 OpenAI-style providers.
+
+You can either configure the endpoint once with `LOCAL_LLM_BASE_URL`, or encode
+the endpoint directly in the `model_id` for one-off calls and registries such
+as `mq`:
 
 ```python
 from llm_client import get_provider, retry_request
@@ -106,6 +111,33 @@ response = retry_request(
     timeout=120,
 )
 ```
+
+Direct endpoint model IDs use the local server address as the first segment and
+send everything after the first slash as the OpenAI `model` value:
+
+```python
+response = retry_request(
+    provider=get_provider("local"),
+    messages=[{"role": "user", "content": "Reply with exactly: ok"}],
+    model_id="127.0.0.1:8000/Qwen/Qwen3-8B",
+    max_retries=1,
+)
+```
+
+That calls `http://127.0.0.1:8000/v1/chat/completions` with
+`"model": "Qwen/Qwen3-8B"`. The optional provider-prefixed spelling is also
+accepted: `local/127.0.0.1:8000/Qwen/Qwen3-8B`.
+
+For a full base URL or a custom OpenAI-compatible path, use `::` so the boundary
+between URL and model is explicit:
+
+```python
+model_id = "http://127.0.0.1:8000/custom/v1::served-model-name"
+```
+
+Full URL values without `::` are rejected with a non-retryable
+`invalid_option` error because the URL path and model name boundary would be
+ambiguous.
 
 ## Tinker Provider Usage
 

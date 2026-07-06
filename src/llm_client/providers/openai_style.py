@@ -38,14 +38,30 @@ class OpenAIStyleProvider(LLMProvider):
             "Content-Type": "application/json",
         }
 
-    def _get_chat_completions_url(self) -> str:
-        return f"{self._get_api_base()}/chat/completions"
+    def _get_chat_completions_url(self, api_base: Optional[str] = None) -> str:
+        return f"{(api_base or self._get_api_base()).rstrip('/')}/chat/completions"
+
+    def _resolve_chat_completion_target(self, model_id: str) -> tuple[str, str]:
+        """Return the API base and model ID to send for this request."""
+        return self._get_api_base().rstrip("/"), model_id
 
     def make_chat_completion_request(
         self, messages, model_id, context=None, **options
     ) -> LLMResponse:
         timeout = options.pop("timeout", self.default_timeout)
         max_tokens = options.pop("max_tokens", self.default_max_tokens)
+        try:
+            api_base, request_model_id = self._resolve_chat_completion_target(model_id)
+        except ValueError as e:
+            return LLMResponse(
+                success=False,
+                error_info={
+                    "type": "invalid_option",
+                    "message": str(e),
+                },
+                is_retryable=False,
+                context=context,
+            )
 
         # Opt-in streaming transport that returns a final aggregated response.
         # Supported interface: transport='stream'.
@@ -66,7 +82,7 @@ class OpenAIStyleProvider(LLMProvider):
         use_stream_transport = transport == "stream"
 
         data: Dict[str, Any] = {
-            "model": model_id,
+            "model": request_model_id,
             "messages": messages,
             "max_tokens": max_tokens,
         }
@@ -103,7 +119,7 @@ class OpenAIStyleProvider(LLMProvider):
                 )
                 u3_resp = http.request(
                     "POST",
-                    self._get_chat_completions_url(),
+                    self._get_chat_completions_url(api_base),
                     body=body_bytes,
                     headers=headers,
                     preload_content=False,
@@ -147,7 +163,7 @@ class OpenAIStyleProvider(LLMProvider):
             )
             u3_resp = http.request(
                 "POST",
-                self._get_chat_completions_url(),
+                self._get_chat_completions_url(api_base),
                 body=body_bytes,
                 headers=headers,
                 preload_content=True,

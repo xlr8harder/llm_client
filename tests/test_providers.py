@@ -193,6 +193,208 @@ class TestProviders(unittest.TestCase):
         payload = json.loads(kwargs["body"].decode("utf-8"))
         self.assertEqual(payload["model"], "served-model")
 
+    @patch("urllib3.PoolManager.request")
+    def test_local_provider_endpoint_slug_sets_base_and_model(self, mock_request):
+        """Local provider can address a server and model in the model_id."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "chatcmpl-local-slug",
+                "object": "chat.completion",
+                "created": 123,
+                "model": "tiny-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "slug ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3,
+                },
+            },
+        )
+
+        provider = get_provider("local")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "hello"}],
+            model_id="127.0.0.1:18000/tiny-model",
+        )
+
+        self.assertTrue(response.success)
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args[1], "http://127.0.0.1:18000/v1/chat/completions")
+        payload = json.loads(kwargs["body"].decode("utf-8"))
+        self.assertEqual(payload["model"], "tiny-model")
+
+    @patch("urllib3.PoolManager.request")
+    def test_local_provider_prefixed_endpoint_slug_keeps_slash_model(self, mock_request):
+        """The optional local/ prefix supports model IDs that contain slashes."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "chatcmpl-local-prefixed",
+                "object": "chat.completion",
+                "created": 123,
+                "model": "Qwen/Qwen3-8B",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "prefixed ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3,
+                },
+            },
+        )
+
+        provider = get_provider("local")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "hello"}],
+            model_id="local/localhost:11434/Qwen/Qwen3-8B",
+        )
+
+        self.assertTrue(response.success)
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args[1], "http://localhost:11434/v1/chat/completions")
+        payload = json.loads(kwargs["body"].decode("utf-8"))
+        self.assertEqual(payload["model"], "Qwen/Qwen3-8B")
+
+    @patch("urllib3.PoolManager.request")
+    def test_local_provider_explicit_base_url_model_slug(self, mock_request):
+        """Explicit base URL syntax supports custom OpenAI-compatible paths."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "chatcmpl-local-explicit",
+                "object": "chat.completion",
+                "created": 123,
+                "model": "qwen2.5:7b",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "explicit ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3,
+                },
+            },
+        )
+
+        provider = get_provider("local")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "hello"}],
+            model_id="http://localhost:11434/api/v1::qwen2.5:7b",
+        )
+
+        self.assertTrue(response.success)
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args[1], "http://localhost:11434/api/v1/chat/completions")
+        payload = json.loads(kwargs["body"].decode("utf-8"))
+        self.assertEqual(payload["model"], "qwen2.5:7b")
+
+    @patch("urllib3.PoolManager.request")
+    def test_local_provider_plain_slash_model_uses_configured_base(self, mock_request):
+        """Plain HF-style local model IDs remain model IDs, not endpoint slugs."""
+
+        class U3Resp:
+            def __init__(self, status, data):
+                self.status = status
+                self.data = json.dumps(data).encode("utf-8")
+
+        mock_request.return_value = U3Resp(
+            200,
+            {
+                "id": "chatcmpl-local-plain",
+                "object": "chat.completion",
+                "created": 123,
+                "model": "Qwen/Qwen3-8B",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "plain ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3,
+                },
+            },
+        )
+
+        with patch.dict(
+            "os.environ",
+            {"LOCAL_LLM_BASE_URL": "http://localhost:9000/v1"},
+        ):
+            provider = get_provider("local")
+            response = provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "hello"}],
+                model_id="Qwen/Qwen3-8B",
+            )
+
+        self.assertTrue(response.success)
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args[1], "http://localhost:9000/v1/chat/completions")
+        payload = json.loads(kwargs["body"].decode("utf-8"))
+        self.assertEqual(payload["model"], "Qwen/Qwen3-8B")
+
+    def test_local_provider_invalid_endpoint_slug_errors_clearly(self):
+        """Malformed endpoint-bearing local model IDs fail before network I/O."""
+        provider = get_provider("local")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "hello"}],
+            model_id="local/127.0.0.1:18000/",
+        )
+
+        self.assertFalse(response.success)
+        self.assertFalse(response.is_retryable)
+        self.assertEqual(response.error_info["type"], "invalid_option")
+        self.assertIn("non-empty model", response.error_info["message"])
+
+    def test_local_provider_full_url_without_delimiter_errors_clearly(self):
+        """Full URL model IDs must use :: so the model boundary is explicit."""
+        provider = get_provider("local")
+        response = provider.make_chat_completion_request(
+            messages=[{"role": "user", "content": "hello"}],
+            model_id="http://127.0.0.1:18000/v1/tiny-model",
+        )
+
+        self.assertFalse(response.success)
+        self.assertFalse(response.is_retryable)
+        self.assertEqual(response.error_info["type"], "invalid_option")
+        self.assertIn("<base_url>::<model>", response.error_info["message"])
+
     def test_tinker_provider_mocked_sampling(self):
         """Test Tinker provider with mocked tinker + tinker_cookbook dependencies."""
         provider = get_provider("tinker")
