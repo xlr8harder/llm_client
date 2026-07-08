@@ -71,33 +71,14 @@ publisher-qualified OpenAI-compatible model ID, for example
 `xai/grok-4.1-fast-non-reasoning`.
 
 For local OpenAI-compatible servers, use provider name `local` or
-`openai_compatible`. The default base URL is `http://127.0.0.1:8000/v1`;
-override it when your server listens elsewhere:
+`openai_compatible`. You can configure the endpoint once with
+`LOCAL_LLM_BASE_URL` and pass the server's model name normally:
 
 ```bash
 export LOCAL_LLM_BASE_URL="http://127.0.0.1:8000/v1"
 # Optional; omit this for local servers that do not require Authorization.
 export LOCAL_LLM_API_KEY="your-local-server-key"
 ```
-
-Local provider options follow the same ergonomics as the other providers:
-
-| Option | Default | Notes |
-|--------|---------|-------|
-| Provider name | `local` | `openai_compatible` is an alias for the same provider. |
-| API base | `http://127.0.0.1:8000/v1` | Override with `LOCAL_LLM_BASE_URL`. The trailing slash is optional. |
-| API key | unset | Override with `LOCAL_LLM_API_KEY`. If unset, no `Authorization` header is sent. |
-| Model ID | caller supplied | Use the model name exposed by your local server. |
-| Endpoint model ID | unset | Use `<host>:<port>/<model>` or `local/<host>:<port>/<model>` to address a local endpoint directly. |
-
-The local provider uses the shared OpenAI-compatible transport, so request
-options such as `temperature`, `max_tokens`, `timeout`, and
-`transport="stream"` behave like they do for `openai`, `xai`, and other
-OpenAI-style providers.
-
-You can either configure the endpoint once with `LOCAL_LLM_BASE_URL`, or encode
-the endpoint directly in the `model_id` for one-off calls and registries such
-as `mq`:
 
 ```python
 from llm_client import get_provider, retry_request
@@ -112,32 +93,24 @@ response = retry_request(
 )
 ```
 
-Direct endpoint model IDs use the local server address as the first segment and
-send everything after the first slash as the OpenAI `model` value:
+For one-off calls and registries such as `mq`, you can also encode the endpoint
+directly in `model_id`:
 
 ```python
-response = retry_request(
-    provider=get_provider("local"),
-    messages=[{"role": "user", "content": "Reply with exactly: ok"}],
-    model_id="127.0.0.1:8000/Qwen/Qwen3-8B",
-    max_retries=1,
-)
-```
-
-That calls `http://127.0.0.1:8000/v1/chat/completions` with
-`"model": "Qwen/Qwen3-8B"`. The optional provider-prefixed spelling is also
-accepted: `local/127.0.0.1:8000/Qwen/Qwen3-8B`.
-
-For a full base URL or a custom OpenAI-compatible path, use `::` so the boundary
-between URL and model is explicit:
-
-```python
+model_id = "127.0.0.1:8000/Qwen/Qwen3-8B"
+# optional provider-prefixed spelling:
+model_id = "local/127.0.0.1:8000/Qwen/Qwen3-8B"
+# full/custom base URL form:
 model_id = "http://127.0.0.1:8000/custom/v1::served-model-name"
 ```
 
-Full URL values without `::` are rejected with a non-retryable
-`invalid_option` error because the URL path and model name boundary would be
-ambiguous.
+`127.0.0.1:8000/Qwen/Qwen3-8B` calls
+`http://127.0.0.1:8000/v1/chat/completions` and sends `Qwen/Qwen3-8B` as the
+OpenAI `model` value. Full URLs use `::` so the URL path and model boundary are
+explicit; full URL values without `::` fail with a non-retryable
+`invalid_option` error. The local provider uses the shared OpenAI-compatible
+transport, so options such as `temperature`, `max_tokens`, `timeout`, and
+`transport="stream"` behave like they do for other OpenAI-style providers.
 
 ## Tinker Provider Usage
 
