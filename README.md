@@ -13,6 +13,33 @@ A clean, modular client library for interacting with LLM providers and local Ope
 - **Context Passing**: Support for passing context through requests for multi-threaded usage
 - **Coherency Testing (OpenRouter)**: Sub‑provider gating to automatically exclude failing endpoints; optionally enforces reasoning/"thinking" output
 
+## V2 Preview
+
+V2 is additive: existing provider and `LLMResponse` calls retain their current
+behavior. The new API adds serializable conversations, explicit protocol
+selection, raw operation records, and sync/async clients:
+
+```python
+from llm_client import Client, Conversation
+
+with Client() as client:
+    model = client.model(
+        "openrouter/openai/gpt-5.6-sol",
+        protocol="responses",
+    )
+    conversation = model.conversation(system="Be concise.")
+    response = conversation.send("Explain speculative decoding.")
+    print(response.content)
+
+saved = conversation.to_json()
+restored = Conversation.from_json(saved)
+```
+
+Local endpoints serialize without their host identity and must be rebound after
+restoration. See [V2 Preview](docs/v2-preview.md) for the implemented surface and
+[V2 Requirements and Design](docs/v2-requirements-design.md) for the complete
+target compatibility, serialization, privacy, and migration contract.
+
 ## Supported Providers
 
 - OpenAI

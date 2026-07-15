@@ -36,7 +36,39 @@ PROVIDER_MAP = {
     "openai_compatible": LocalProvider,
 }
 
-__version__ = "0.1.29"
+__version__ = "0.2.0"
+
+# V2 is additive. Legacy imports and behavior above remain unchanged.
+from .v2_builder import ConversationBuilder
+from .v2_client import (
+    AsyncClient,
+    Client,
+    Model,
+    UnknownProviderFieldWarning,
+    generate,
+    reset_unknown_field_warnings,
+)
+from .v2_models import (
+    Conversation,
+    ConversationBusyError,
+    ErrorInfo,
+    Message,
+    ModelResponse,
+    ProviderState,
+    ReplyOperation,
+    RequestAttempt,
+    UnboundConversationError,
+    WireRecord,
+)
+from .oauth import (
+    OAuthConfig,
+    OAuthCredentialStore,
+    OAuthCredentials,
+    OAuthError,
+    OAuthLoginRequest,
+    OAuthManager,
+)
+from .codex_oauth import CodexOAuthManager, codex_oauth_config
 
 
 def get_provider(provider_name):
@@ -78,4 +110,29 @@ __all__ = [
     "StepfunProvider",
     "TinkerProvider",
     "LocalProvider",
+    "AsyncClient",
+    "Client",
+    "Conversation",
+    "ConversationBuilder",
+    "ConversationBusyError",
+    "ErrorInfo",
+    "Message",
+    "Model",
+    "ModelResponse",
+    "ProviderState",
+    "ReplyOperation",
+    "RequestAttempt",
+    "UnknownProviderFieldWarning",
+    "UnboundConversationError",
+    "WireRecord",
+    "generate",
+    "reset_unknown_field_warnings",
+    "OAuthConfig",
+    "OAuthCredentialStore",
+    "OAuthCredentials",
+    "OAuthError",
+    "OAuthLoginRequest",
+    "OAuthManager",
+    "CodexOAuthManager",
+    "codex_oauth_config",
 ]
