@@ -40,6 +40,8 @@ KNOWN_TOP_LEVEL = {
         "usage",
         "system_fingerprint",
         "openrouter_metadata",
+        "provider",
+        "service_tier",
         "error",
     },
     "messages": {
@@ -52,6 +54,8 @@ KNOWN_TOP_LEVEL = {
         "stop_sequence",
         "usage",
         "openrouter_metadata",
+        "provider",
+        "service_tier",
         "error",
     },
     "responses": {
@@ -67,6 +71,7 @@ KNOWN_TOP_LEVEL = {
         "incomplete_details",
         "openrouter_metadata",
         "service_tier",
+        "provider",
     },
 }
 _UNKNOWN_FIELDS: set[tuple[str, str, str]] = set()
@@ -273,6 +278,21 @@ class AsyncConversation(Conversation):
         if not isinstance(self._binding, AsyncModel):
             raise TypeError("AsyncConversation must be bound to an AsyncClient")
         return await self._binding.send(self, content, **options)
+
+    async def send_pending(self, **options: Any) -> ModelResponse:
+        if self._binding is None:
+            from .v2_models import UnboundConversationError
+
+            raise UnboundConversationError(
+                "Conversation has no runtime binding. Call conversation.bind(client) before sending."
+            )
+        if not self.pending_messages:
+            raise ValueError(
+                "Conversation has no pending user or tool messages to send"
+            )
+        if not isinstance(self._binding, AsyncModel):
+            raise TypeError("AsyncConversation must be bound to an AsyncClient")
+        return await self._binding.send(self, None, append_input=False, **options)
 
 
 class Client:
@@ -546,7 +566,7 @@ def _build_request(model, messages, options, auth_headers):
     headers.update(auth_headers)
     extra_headers = deepcopy(options.get("extra_headers", {}))
     headers.update(extra_headers)
-    if model.provider == "openrouter" and options.get("openrouter_metadata", True):
+    if model.provider == "openrouter" and options.get("openrouter_metadata", False):
         headers.setdefault("X-OpenRouter-Metadata", "enabled")
     body = _protocol_body(model.protocol, model.model_id, messages, options)
     return url, headers, body
@@ -766,9 +786,15 @@ def _normalize(model, raw, status):
             content=({"type": "text", "text": content},),
             provider_state=state,
         )
-    metadata = {"provider": {model.provider: {}}}
+    provider_metadata = {}
+    if model.provider == "openrouter" and isinstance(raw, dict):
+        if raw.get("provider") is not None:
+            provider_metadata["selected_backend"] = deepcopy(raw["provider"])
+        if raw.get("service_tier") is not None:
+            provider_metadata["service_tier"] = deepcopy(raw["service_tier"])
+    metadata = {"provider": {model.provider: provider_metadata}}
     if isinstance(raw, dict) and "openrouter_metadata" in raw:
-        metadata["provider"]["openrouter"] = deepcopy(raw["openrouter_metadata"])
+        provider_metadata.update(deepcopy(raw["openrouter_metadata"]))
     error = _finish_error(finish, native, raw)
     return ModelResponse(
         ok=error is None,
@@ -958,10 +984,18 @@ def _normalize_finish(value):
     mapping = {
         "end_turn": "stop",
         "completed": "stop",
+        "STOP": "stop",
+        "eos": "stop",
+        "eos_token": "stop",
         "max_tokens": "length",
         "max_output_tokens": "length",
+        "MAX_TOKENS": "length",
         "safety": "content_filter",
         "refusal": "content_filter",
+        "PROHIBITED_CONTENT": "content_filter",
+        "RECITATION": "content_filter",
+        "sensitive": "content_filter",
+        "engine_overloaded": "error",
     }
     return mapping.get(
         value,
@@ -972,6 +1006,14 @@ def _normalize_finish(value):
 
 
 def _finish_error(finish, native, raw):
+    if finish is None:
+        return ErrorInfo(
+            category="invalid_response",
+            message="Provider response omitted required finish metadata",
+            retryable=None,
+            native_finish_reason=native,
+            raw=deepcopy(raw),
+        )
     if finish == "content_filter":
         return ErrorInfo(
             category="moderation",

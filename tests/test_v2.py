@@ -92,6 +92,33 @@ def test_generate_rejects_content_and_messages_together():
             )
 
 
+def test_send_pending_submits_imported_messages_without_duplication():
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_response("answer"))
+
+    with Client(transport=httpx.MockTransport(handler)) as client:
+        conversation = client.model("openrouter/openai/test").conversation(
+            messages=[{"role": "user", "content": "imported"}]
+        )
+        response = conversation.send_pending(max_tokens=20)
+
+    assert response.content == "answer"
+    assert seen[0]["messages"] == [{"role": "user", "content": "imported"}]
+    assert conversation.last_operation.input_message_ids == (
+        conversation.messages[0].id,
+    )
+
+
+def test_send_pending_requires_pending_input():
+    with Client() as client:
+        conversation = client.model("openrouter/openai/test").conversation()
+        with pytest.raises(ValueError, match="no pending"):
+            conversation.send_pending()
+
+
 def test_unimplemented_protocol_is_rejected():
     with Client() as client:
         with pytest.raises(ValueError, match="Unsupported protocol"):
@@ -144,6 +171,13 @@ def test_local_route_and_wire_hide_endpoint_and_require_rebinding():
     rebound_client.close()
 
 
+def test_local_unset_route_preserves_slash_qualified_model_id():
+    with Client(local_endpoint="http://127.0.0.1:8000/v1") as client:
+        model = client.model("local/unset/Qwen/Qwen3-4B")
+        assert model.model_id == "Qwen/Qwen3-4B"
+        assert model.serialized_route["model"] == "local/unset/Qwen/Qwen3-4B"
+
+
 def test_wire_redacts_auth_and_preserves_openrouter_metadata_and_unknown_fields():
     raw = chat_response(
         "ok",
@@ -161,7 +195,7 @@ def test_wire_redacts_auth_and_preserves_openrouter_metadata_and_unknown_fields(
             transport=httpx.MockTransport(handler),
         ) as client:
             conversation = client.model("openrouter/test/model").conversation()
-            response = conversation.send("hello")
+            response = conversation.send("hello", openrouter_metadata=True)
 
     wire = response.operation.attempts[0].wire
     assert wire.request["headers"]["Authorization"] == "[REDACTED]"
@@ -174,6 +208,28 @@ def test_wire_redacts_auth_and_preserves_openrouter_metadata_and_unknown_fields(
         response.operation.normalization["notices"][0]["path"] == "future_router_field"
     )
     assert any(isinstance(item.message, UnknownProviderFieldWarning) for item in caught)
+
+
+def test_openrouter_metadata_enrichment_is_opt_in_and_expected_fields_are_normalized():
+    seen = []
+    raw = chat_response("ok", provider="OpenAI", service_tier="default")
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json=raw)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with Client(transport=httpx.MockTransport(handler)) as client:
+            response = client.generate("hello", model="openrouter/test/model")
+
+    assert "X-OpenRouter-Metadata" not in seen[0].headers
+    assert response.raw == raw
+    assert response.metadata["provider"]["openrouter"] == {
+        "selected_backend": "OpenAI",
+        "service_tier": "default",
+    }
+    assert not caught
 
 
 def test_provider_error_is_operation_not_message_and_can_round_trip():
@@ -223,6 +279,54 @@ def test_finish_reason_classification_preserves_output_and_native_reason(
     assert response.error.category == category
     assert response.operation.status == status
     assert conversation.last_message.role == "assistant"
+
+
+@pytest.mark.parametrize(
+    ("native", "normalized", "category"),
+    [
+        ("STOP", "stop", None),
+        ("completed", "stop", None),
+        ("end_turn", "stop", None),
+        ("eos_token", "stop", None),
+        ("eos", "stop", None),
+        ("PROHIBITED_CONTENT", "content_filter", "moderation"),
+        ("RECITATION", "content_filter", "moderation"),
+        ("refusal", "content_filter", "moderation"),
+        ("sensitive", "content_filter", "moderation"),
+        ("MAX_TOKENS", "length", "truncation"),
+        ("max_output_tokens", "length", "truncation"),
+        ("max_tokens", "length", "truncation"),
+        ("engine_overloaded", "error", "provider"),
+        ("OTHER", "unknown", "invalid_response"),
+    ],
+)
+def test_llm_compliance_finish_reason_taxonomy(native, normalized, category):
+    raw = chat_response("result")
+    raw["choices"][0]["finish_reason"] = native
+    raw["choices"][0].pop("native_finish_reason", None)
+
+    with Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=raw))
+    ) as client:
+        response = client.generate("test", model="openrouter/test/model")
+
+    assert response.finish_reason == normalized
+    assert response.native_finish_reason == native
+    assert (response.error.category if response.error else None) == category
+
+
+def test_missing_finish_reason_is_invalid_response():
+    raw = chat_response("result")
+    del raw["choices"][0]["finish_reason"]
+    raw["choices"][0].pop("native_finish_reason", None)
+
+    with Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=raw))
+    ) as client:
+        response = client.generate("test", model="openrouter/test/model")
+
+    assert response.ok is False
+    assert response.error.category == "invalid_response"
 
 
 def test_messages_protocol_system_thinking_and_raw_metadata():

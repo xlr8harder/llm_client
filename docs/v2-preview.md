@@ -49,7 +49,7 @@ Local routes require a runtime endpoint:
 
 ```python
 client = llm_client.Client(local_endpoint="http://127.0.0.1:8000/v1")
-model = client.model("local/Qwen/Qwen3-4B")
+model = client.model("local/unset/Qwen/Qwen3-4B")
 conversation = model.conversation()
 ```
 

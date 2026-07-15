@@ -478,6 +478,27 @@ class Conversation:
         finally:
             self._busy.release()
 
+    def send_pending(self, **options: Any) -> ModelResponse:
+        """Submit imported trailing user/tool messages without appending input."""
+        if self._binding is None:
+            raise UnboundConversationError(
+                "Conversation has no runtime binding. Call conversation.bind(client) before sending."
+            )
+        if not self.pending_messages:
+            raise ValueError(
+                "Conversation has no pending user or tool messages to send"
+            )
+        if not self._busy.acquire(blocking=False):
+            raise ConversationBusyError(
+                "This conversation already has an active writer"
+            )
+        try:
+            return self._binding._send_conversation(
+                self, None, options, append_input=False
+            )
+        finally:
+            self._busy.release()
+
     def rebind(self, model: Any, *, provider_state: str = "error") -> Conversation:
         states = [
             message.provider_state
