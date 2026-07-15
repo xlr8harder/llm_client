@@ -36,7 +36,7 @@ PROVIDER_MAP = {
     "openai_compatible": LocalProvider,
 }
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 # V2 is additive. Legacy imports and behavior above remain unchanged.
 from .v2_builder import ConversationBuilder
