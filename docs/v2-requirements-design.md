@@ -221,6 +221,55 @@ with model.stream("Hello") as stream:
 response = stream.response
 ```
 
+### 5.5 Parallelism and concurrency
+
+High parallelism is a primary operating mode, not an optional optimization. V2
+must support many simultaneous requests from threads and async tasks without a
+process-wide request lock or shared mutable request state.
+
+Concurrency ownership is explicit:
+
+- `Client` is safe to share across threads. `AsyncClient` is safe to share across
+  tasks on its owning event loop.
+- Configured `Model` access routes and completed canonical records are immutable
+  and safe to share.
+- Every operation receives isolated builder, request, response, retry, and stream
+  aggregation state.
+- Provider adapters and normalization registries do not store mutable per-request
+  state on shared provider instances.
+- Connection pools may be shared when the transport supports it; response bodies
+  and live streams are never shared between requests.
+- Credential refresh uses single-flight coordination scoped to one auth profile.
+  It must not serialize ordinary inference requests or unrelated accounts.
+- Unknown-field warning deduplication, ID generation, metrics, and caches are
+  thread-safe and do not affect result correctness.
+- Optional rate or concurrency limiting is explicit and scoped. The library does
+  not impose a hidden global throttle.
+
+A conversation has ordered mutable history and therefore has one writer at a
+time. Concurrent `send`, `resume`, `rebind`, or destructive history operations on
+the same conversation fail immediately with `ConversationBusyError` rather than
+silently racing or choosing an arbitrary order. Independent conversations and
+conversation forks remain fully parallel.
+
+```python
+shared_model = client.model("openrouter/openai/gpt-5.6-sol")
+
+# Each worker owns its conversation; the client and model are shared.
+conversation = shared_model.conversation(messages=worker_messages)
+response = conversation.send(worker_prompt)
+```
+
+If ordered concurrent submission to one logical conversation is needed, the
+application serializes those submissions or uses an explicit future queueing
+facility. V2 does not infer ordering from thread or task scheduling.
+
+Async support uses a native async transport rather than permanently wrapping the
+synchronous client in a thread executor. Sync and async implementations share
+protocol codecs, builders, normalization, error classification, and canonical
+serialization. Cancellation records an interrupted attempt and leaves the
+conversation in a recoverable state.
+
 ## 6. Canonical Data Model
 
 ### 6.1 Conversation
@@ -909,6 +958,24 @@ Port existing `llm-compliance` finish-reason and error fixtures into shared
 Fixture and optional live tests compare supported protocols and ensure equivalent
 normalized structure, complete raw preservation, and stable round trips.
 
+### 21.7 Concurrency
+
+Concurrency tests cover:
+
+- Many threads sharing one `Client` and immutable `Model` route.
+- Many tasks sharing one `AsyncClient` and immutable `Model` route.
+- Isolation of request options, wire records, retries, errors, and stream events.
+- No cross-request context, response, credential, or provider-state leakage.
+- Parallel requests continuing while one auth profile performs a coordinated
+  refresh.
+- Exactly one refresh for concurrent expiry detection on the same auth profile.
+- Independent refresh and request progress for different auth profiles.
+- Thread-safe unknown-field warning deduplication and ID generation.
+- Immediate `ConversationBusyError` for concurrent mutation of one conversation.
+- Full parallelism across separate conversations and forks.
+- Async cancellation producing a serializable interrupted operation.
+- Absence of hidden global request or rate-limit serialization.
+
 ## 22. Migration Plan
 
 1. Freeze legacy behavior with golden tests.
@@ -940,3 +1007,5 @@ V2 is acceptable when:
 - Existing error and finish-reason rigor is retained.
 - Provider-specific functionality does not pollute canonical namespaces.
 - Model catalog policy remains outside the library.
+- Shared clients and models sustain highly parallel threaded and async workloads
+  without cross-request state leakage or hidden global serialization.
