@@ -69,6 +69,7 @@ class TestProviders(unittest.TestCase):
             "tinker",
             "local",
             "openai_compatible",
+            "codex",
         ]
         for name in provider_names:
             provider = get_provider(name)
@@ -397,6 +398,7 @@ class TestProviders(unittest.TestCase):
 
     def test_tinker_provider_mocked_sampling(self):
         """Test Tinker provider with mocked tinker + tinker_cookbook dependencies."""
+        TinkerProvider._clear_client_cache_for_tests()
         provider = get_provider("tinker")
         self.assertIsInstance(provider, TinkerProvider)
         self.assertEqual(os.environ.get("TOKENIZERS_PARALLELISM"), "false")
@@ -515,6 +517,260 @@ class TestProviders(unittest.TestCase):
         )
         self.assertEqual(resp.standardized_response["usage"]["prompt_tokens"], 3)
         self.assertEqual(resp.standardized_response["usage"]["completion_tokens"], 2)
+
+    def test_tinker_provider_reuses_service_and_sampling_client(self):
+        """Tinker has active-session limits, so provider instances share clients."""
+        TinkerProvider._clear_client_cache_for_tests()
+        provider = get_provider("tinker")
+
+        class FakeModelInput:
+            def to_ints(self):
+                return [101]
+
+        class FakeRenderer:
+            def build_generation_prompt(self, messages):
+                return FakeModelInput()
+
+            def get_stop_sequences(self):
+                return ["<STOP>"]
+
+            def parse_response(self, tokens):
+                return {"role": "assistant", "content": "ok"}, True
+
+        class FakeTokenizer:
+            pass
+
+        class FakeSamplingParams:
+            def __init__(self, **kwargs):
+                self.kwargs = dict(kwargs)
+
+        class FakeSampleSeq:
+            tokens = [201]
+
+        class FakeSampleResult:
+            sequences = [FakeSampleSeq()]
+
+        class FakeFuture:
+            def result(self, timeout=None):
+                return FakeSampleResult()
+
+        class FakeSamplingClient:
+            sample_calls = 0
+
+            def sample(self, prompt, sampling_params, num_samples=1):
+                type(self).sample_calls += 1
+                return FakeFuture()
+
+        class FakeServiceClient:
+            init_calls = 0
+            create_sampling_calls = 0
+
+            def __init__(self, base_url=None):
+                type(self).init_calls += 1
+
+            def create_sampling_client(self, model_path=None, base_model=None):
+                type(self).create_sampling_calls += 1
+                return FakeSamplingClient()
+
+        fake_tinker = types.ModuleType("tinker")
+        fake_tinker.SamplingParams = FakeSamplingParams
+        fake_tinker.ServiceClient = FakeServiceClient
+
+        fake_pkg = types.ModuleType("tinker_cookbook")
+        fake_renderers = types.ModuleType("tinker_cookbook.renderers")
+        fake_tokenizer_utils = types.ModuleType("tinker_cookbook.tokenizer_utils")
+        fake_renderers.get_renderer = lambda name, tokenizer: FakeRenderer()
+        fake_tokenizer_utils.get_tokenizer = lambda base_model: FakeTokenizer()
+        fake_pkg.renderers = fake_renderers
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "tinker": fake_tinker,
+                "tinker_cookbook": fake_pkg,
+                "tinker_cookbook.renderers": fake_renderers,
+                "tinker_cookbook.tokenizer_utils": fake_tokenizer_utils,
+            },
+        ):
+            for _ in range(2):
+                resp = provider.make_chat_completion_request(
+                    messages=[{"role": "user", "content": "hi"}],
+                    model_id="BaseModel",
+                    renderer="role_colon",
+                    max_tokens=10,
+                )
+                self.assertTrue(resp.success)
+
+        self.assertEqual(FakeServiceClient.init_calls, 1)
+        self.assertEqual(FakeServiceClient.create_sampling_calls, 1)
+        self.assertEqual(FakeSamplingClient.sample_calls, 2)
+        TinkerProvider._clear_client_cache_for_tests()
+
+    def _mocked_tinker_request(
+        self, fake_renderer, tokens, model_id="BaseModel", **options
+    ):
+        TinkerProvider._clear_client_cache_for_tests()
+        provider = get_provider("tinker")
+
+        class FakeModelInput:
+            def __init__(self, token_ids):
+                self._token_ids = list(token_ids)
+
+            def to_ints(self):
+                return list(self._token_ids)
+
+        class FakeTokenizer:
+            pass
+
+        class FakeSamplingParams:
+            def __init__(self, **kwargs):
+                self.kwargs = dict(kwargs)
+
+        class FakeSampleSeq:
+            def __init__(self, token_ids):
+                self.tokens = list(token_ids)
+
+        class FakeSampleResult:
+            def __init__(self, sequences):
+                self.sequences = sequences
+
+        class FakeFuture:
+            def result(self, timeout=None):
+                return FakeSampleResult([FakeSampleSeq(tokens)])
+
+        class FakeSamplingClient:
+            def sample(self, prompt, sampling_params, num_samples=1):
+                return FakeFuture()
+
+        class FakeServiceClient:
+            def __init__(self, base_url=None):
+                self.base_url = base_url
+
+            def create_sampling_client(self, model_path=None, base_model=None):
+                return FakeSamplingClient()
+
+        fake_tinker = types.ModuleType("tinker")
+        fake_tinker.SamplingParams = FakeSamplingParams
+        fake_tinker.ServiceClient = FakeServiceClient
+
+        fake_pkg = types.ModuleType("tinker_cookbook")
+        fake_renderers = types.ModuleType("tinker_cookbook.renderers")
+        fake_tokenizer_utils = types.ModuleType("tinker_cookbook.tokenizer_utils")
+        fake_renderers.get_renderer = lambda name, tokenizer: fake_renderer
+        fake_tokenizer_utils.get_tokenizer = lambda base_model: FakeTokenizer()
+        fake_pkg.renderers = fake_renderers
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "tinker": fake_tinker,
+                "tinker_cookbook": fake_pkg,
+                "tinker_cookbook.renderers": fake_renderers,
+                "tinker_cookbook.tokenizer_utils": fake_tokenizer_utils,
+            },
+        ):
+            return provider.make_chat_completion_request(
+                messages=[{"role": "user", "content": "hi"}],
+                model_id=model_id,
+                **options,
+            )
+
+    def test_tinker_provider_passes_reasoning_effort_to_renderer(self):
+        captured = {}
+
+        class FakeModelInput:
+            def to_ints(self):
+                return [101, 102, 103]
+
+        class FakeRenderer:
+            def build_generation_prompt(self, messages, effort=0.9):
+                captured["effort"] = effort
+                return FakeModelInput()
+
+            def get_stop_sequences(self):
+                return ["<STOP>"]
+
+            def parse_response(self, tokens):
+                return {"role": "assistant", "content": "ok"}, True
+
+        resp = self._mocked_tinker_request(
+            FakeRenderer(),
+            tokens=[201, 202],
+            renderer="tml_v0",
+            reasoning={"enabled": False},
+            max_tokens=10,
+        )
+
+        self.assertTrue(resp.success)
+        self.assertEqual(captured["effort"], 0.0)
+
+    def test_tinker_provider_malformed_at_token_cap_is_length(self):
+        class FakeModelInput:
+            def to_ints(self):
+                return [101]
+
+        class FakeTermination:
+            value = "malformed"
+
+        class FakeRenderer:
+            def build_generation_prompt(self, messages):
+                return FakeModelInput()
+
+            def get_stop_sequences(self):
+                return ["<STOP>"]
+
+            def parse_response(self, tokens):
+                return {"role": "assistant", "content": "partial"}, FakeTermination()
+
+        resp = self._mocked_tinker_request(
+            FakeRenderer(),
+            tokens=list(range(10)),
+            max_tokens=10,
+        )
+
+        self.assertTrue(resp.success)
+        self.assertEqual(resp.standardized_response["finish_reason"], "length")
+        self.assertEqual(resp.standardized_response["native_finish_reason"], "malformed")
+        self.assertEqual(
+            resp.standardized_response["normalization_evidence"]["finish_reason"],
+            {
+                "source": "renderer.parse_response[1]",
+                "value": "malformed",
+                "normalized": "length",
+            },
+        )
+        self.assertEqual(
+            resp.raw_provider_response["tinker"]["parse_termination"], "malformed"
+        )
+
+    def test_tinker_provider_malformed_below_token_cap_is_error(self):
+        class FakeModelInput:
+            def to_ints(self):
+                return [101]
+
+        class FakeTermination:
+            name = "MALFORMED"
+
+        class FakeRenderer:
+            def build_generation_prompt(self, messages):
+                return FakeModelInput()
+
+            def get_stop_sequences(self):
+                return ["<STOP>"]
+
+            def parse_response(self, tokens):
+                return {"role": "assistant", "content": "bad"}, FakeTermination()
+
+        resp = self._mocked_tinker_request(
+            FakeRenderer(),
+            tokens=[201, 202],
+            max_tokens=10,
+        )
+
+        self.assertFalse(resp.success)
+        self.assertFalse(resp.is_retryable)
+        self.assertEqual(resp.error_info["type"], "provider_error")
+        self.assertEqual(resp.error_info["parse_termination"], "MALFORMED")
 
     def test_tinker_provider_requires_base_model_for_raw_path(self):
         provider = get_provider("tinker")
@@ -1244,12 +1500,12 @@ class TestProviders(unittest.TestCase):
         response = provider.make_request(
             messages=[{"role": "user", "content": "Test message"}],
             model_id="test-model",
-            request_format="responses",
+            request_format="bedrock_converse",
         )
 
         self.assertFalse(response.success)
         self.assertEqual(response.error_info["type"], "invalid_option")
-        self.assertEqual(response.request_format, "responses")
+        self.assertEqual(response.request_format, "bedrock_converse")
         self.assertEqual(response.raw_response_format, "llm_client.error")
 
     @patch("urllib3.PoolManager.request")

@@ -17,6 +17,7 @@ from .providers import (
     StepfunProvider,
     TinkerProvider,
     LocalProvider,
+    CodexProvider,
 )
 
 # Convenient mapping of provider names to their implementations
@@ -34,6 +35,7 @@ PROVIDER_MAP = {
     "tinker": TinkerProvider,
     "local": LocalProvider,
     "openai_compatible": LocalProvider,
+    "codex": CodexProvider,
 }
 
 __version__ = "0.2.2"
@@ -110,6 +112,7 @@ __all__ = [
     "StepfunProvider",
     "TinkerProvider",
     "LocalProvider",
+    "CodexProvider",
     "AsyncClient",
     "Client",
     "Conversation",

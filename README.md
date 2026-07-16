@@ -74,7 +74,7 @@ uv pip install -e '.[tinker]'
 
 This will install:
 - `tinker` from PyPI
-- `tinker_cookbook` from `git+https://github.com/xlr8harder/tinker-cookbook`
+- `tinker_cookbook` from PyPI, with the `inkling` renderer extra
 
 ## Configuration
 
@@ -92,6 +92,51 @@ export GOOGLE_AGENT_PLATFORM_LOCATION="global"
 export GOOGLE_AGENT_PLATFORM_ENDPOINT="openapi"
 export XAI_API_KEY="your-xai-key"
 ```
+
+To use a ChatGPT subscription through an existing Codex CLI login, select the
+`codex` provider. No API key environment variable is required:
+
+```bash
+codex login
+```
+
+```python
+provider = get_provider("codex")
+response = retry_request(
+    provider=provider,
+    messages=[{"role": "user", "content": "Reply with exactly: ok"}],
+    model_id="gpt-5.4",
+    timeout=120,
+)
+```
+
+The provider reads the ChatGPT OAuth credentials from
+`$CODEX_HOME/auth.json` (default `~/.codex/auth.json`), refreshes expired
+credentials under a cross-process lock, and uses the Codex Responses endpoint
+directly. Set `LLM_CLIENT_CODEX_AUTH_FILE` only when the credentials live at a
+different explicit path. Codex requests accept the existing chat-style
+`messages` interface, but `top_k` is not supported and fails with an
+`invalid_option` error that explains how to fix the request.
+
+## Responses API
+
+`llm_client` can translate chat-style messages to the stateless OpenAI
+Responses shape while preserving the standard `LLMResponse` result. The
+`codex` provider uses this automatically. OpenRouter callers can opt in:
+
+```python
+response = retry_request(
+    provider=get_provider("openrouter"),
+    messages=[{"role": "user", "content": "Hello"}],
+    model_id="openai/gpt-5",
+    request_format="responses",
+)
+```
+
+System and developer messages become Responses `instructions`; user and
+assistant messages become `input` items. `max_tokens` maps to
+`max_output_tokens`, and Responses output and usage are normalized back into
+the existing response fields.
 
 For Google Agent Platform, use provider name `google_agent_platform` and a
 publisher-qualified OpenAI-compatible model ID, for example

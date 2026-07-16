@@ -13,15 +13,29 @@ Model addressing:
 
 import os
 import time
+import inspect
+import threading
 from typing import Any, Dict, Optional, Tuple
 
-from ..base import LLMProvider, LLMResponse
+from ..base import LLMProvider, LLMResponse, with_finish_reason_metadata
 
 
 class TinkerProvider(LLMProvider):
     """Provider implementation for Tinker Sampling API."""
 
     provider_name = "tinker"
+    _EFFORT_ALIASES = {
+        "none": 0.0,
+        "minimal": 0.1,
+        "low": 0.2,
+        "medium": 0.7,
+        "high": 0.9,
+        "xhigh": 0.99,
+        "max": 0.99,
+    }
+    _client_lock = threading.Lock()
+    _service_clients: Dict[Tuple[Optional[str]], Any] = {}
+    _sampling_clients: Dict[Tuple[Optional[str], str, Optional[str]], Any] = {}
 
     def __init__(self):
         super().__init__()
@@ -58,7 +72,8 @@ class TinkerProvider(LLMProvider):
             tokenizer = get_tokenizer(base_model)
             renderer = renderers.get_renderer(name=renderer_name, tokenizer=tokenizer)
 
-            prompt = renderer.build_generation_prompt(messages)
+            prompt_kwargs = self._renderer_prompt_kwargs(renderer, renderer_name, options)
+            prompt = renderer.build_generation_prompt(messages, **prompt_kwargs)
             stop = options.pop("stop", None)
             if stop is None:
                 stop = renderer.get_stop_sequences()
@@ -76,20 +91,12 @@ class TinkerProvider(LLMProvider):
                 stop=stop,
             )
 
-            service_client = (
-                tinker.ServiceClient(base_url=base_url)
-                if base_url
-                else tinker.ServiceClient()
+            sampling_client = self._get_sampling_client(
+                tinker=tinker,
+                base_url=base_url,
+                base_model=base_model,
+                tinker_path=tinker_path,
             )
-            if tinker_path:
-                sampling_client = service_client.create_sampling_client(
-                    model_path=tinker_path,
-                    base_model=base_model,
-                )
-            else:
-                sampling_client = service_client.create_sampling_client(
-                    base_model=base_model
-                )
 
             future = sampling_client.sample(
                 prompt=prompt, sampling_params=sampling_params, num_samples=1
@@ -112,7 +119,38 @@ class TinkerProvider(LLMProvider):
             seq0 = sequences[0]
             tokens = getattr(seq0, "tokens", None) or []
 
-            assistant_message, parse_success = renderer.parse_response(tokens)
+            assistant_message, parse_termination = renderer.parse_response(tokens)
+            parse_finish_reason, parse_observed = self._normalize_parse_termination(
+                parse_termination=parse_termination,
+                completion_tokens=len(tokens),
+                max_tokens=max_tokens,
+            )
+            raw_response = {
+                "sequences": [{"tokens": tokens}],
+                "tinker": {
+                    "base_model": base_model,
+                    "model_path": tinker_path,
+                    "renderer": renderer_name,
+                    "parse_termination": parse_observed,
+                    "renderer_prompt_kwargs": prompt_kwargs,
+                },
+            }
+            if parse_finish_reason is None:
+                return LLMResponse(
+                    success=False,
+                    error_info={
+                        "type": "provider_error",
+                        "message": (
+                            "Tinker renderer returned an unclassified parse "
+                            f"termination: {parse_observed!r}"
+                        ),
+                        "parse_termination": parse_observed,
+                    },
+                    raw_provider_response=raw_response,
+                    is_retryable=False,
+                    context=context,
+                )
+
             if isinstance(assistant_message, dict):
                 content = assistant_message.get("content", "")
             else:
@@ -146,17 +184,13 @@ class TinkerProvider(LLMProvider):
                 "provider": self.provider_name,
                 "content": content,
                 "usage": usage,
-                "finish_reason": "stop" if parse_success else "length",
             }
-
-            raw_response = {
-                "sequences": [{"tokens": tokens}],
-                "tinker": {
-                    "base_model": base_model,
-                    "model_path": tinker_path,
-                    "renderer": renderer_name,
-                },
-            }
+            with_finish_reason_metadata(
+                standardized,
+                source="renderer.parse_response[1]",
+                value=parse_observed,
+                normalized=parse_finish_reason,
+            )
             if thinking:
                 raw_response["thinking"] = thinking
 
@@ -204,6 +238,50 @@ class TinkerProvider(LLMProvider):
 
         return tinker, renderers, get_tokenizer
 
+    def _get_sampling_client(
+        self,
+        *,
+        tinker: Any,
+        base_url: Optional[str],
+        base_model: str,
+        tinker_path: Optional[str],
+    ) -> Any:
+        """Reuse Tinker sessions; the service rejects excessive active clients."""
+        service_key = (base_url,)
+        sampling_key = (base_url, base_model, tinker_path)
+
+        with self._client_lock:
+            sampling_client = self._sampling_clients.get(sampling_key)
+            if sampling_client is not None:
+                return sampling_client
+
+            service_client = self._service_clients.get(service_key)
+            if service_client is None:
+                service_client = (
+                    tinker.ServiceClient(base_url=base_url)
+                    if base_url
+                    else tinker.ServiceClient()
+                )
+                self._service_clients[service_key] = service_client
+
+            if tinker_path:
+                sampling_client = service_client.create_sampling_client(
+                    model_path=tinker_path,
+                    base_model=base_model,
+                )
+            else:
+                sampling_client = service_client.create_sampling_client(
+                    base_model=base_model
+                )
+            self._sampling_clients[sampling_key] = sampling_client
+            return sampling_client
+
+    @classmethod
+    def _clear_client_cache_for_tests(cls) -> None:
+        with cls._client_lock:
+            cls._service_clients.clear()
+            cls._sampling_clients.clear()
+
     def _parse_model_id(
         self, model_id: str, options: Dict[str, Any]
     ) -> Tuple[str, str, Optional[str]]:
@@ -238,3 +316,104 @@ class TinkerProvider(LLMProvider):
 
         # Otherwise treat model_id as a base model name and sample it directly.
         return model_id, str(default_renderer), None
+
+    def _renderer_prompt_kwargs(
+        self, renderer: Any, renderer_name: str, options: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        effort = self._extract_effort(options)
+        if effort is None:
+            return {}
+
+        signature = inspect.signature(renderer.build_generation_prompt)
+        if "effort" not in signature.parameters:
+            raise ValueError(
+                f"Tinker renderer '{renderer_name}' does not support reasoning effort"
+            )
+        return {"effort": effort}
+
+    def _extract_effort(self, options: Dict[str, Any]) -> Optional[float]:
+        effort = None
+        if "effort" in options:
+            effort = options.pop("effort")
+        if "reasoning_effort" in options:
+            if effort is not None:
+                raise ValueError("Specify only one of effort or reasoning_effort")
+            effort = options.pop("reasoning_effort")
+
+        reasoning = options.pop("reasoning", None)
+        if reasoning is None:
+            return self._coerce_effort(effort) if effort is not None else None
+        if not isinstance(reasoning, dict):
+            raise ValueError("Tinker reasoning option must be an object")
+
+        enabled = reasoning.get("enabled")
+        reasoning_effort = reasoning.get("effort")
+        reasoning_tokens = reasoning.get("max_tokens")
+
+        if enabled is False:
+            if effort is not None and self._coerce_effort(effort) != 0.0:
+                raise ValueError("Cannot set non-zero effort when reasoning is disabled")
+            if reasoning_effort is not None and self._coerce_effort(reasoning_effort) != 0.0:
+                raise ValueError("Cannot set non-zero reasoning.effort when reasoning is disabled")
+            return 0.0
+
+        if reasoning_tokens is not None:
+            raise ValueError(
+                "Tinker reasoning uses renderer effort, not reasoning.max_tokens"
+            )
+        if reasoning_effort is not None:
+            if effort is not None:
+                raise ValueError("Specify only one of effort or reasoning.effort")
+            effort = reasoning_effort
+
+        return self._coerce_effort(effort) if effort is not None else None
+
+    def _coerce_effort(self, effort: Any) -> float:
+        if isinstance(effort, bool):
+            return 0.9 if effort else 0.0
+        if isinstance(effort, str):
+            normalized = effort.strip().lower()
+            if normalized in self._EFFORT_ALIASES:
+                return self._EFFORT_ALIASES[normalized]
+            effort = normalized
+        value = float(effort)
+        if not 0.0 <= value < 1.0:
+            raise ValueError("Tinker effort must be in the range [0.0, 1.0)")
+        return value
+
+    def _normalize_parse_termination(
+        self,
+        *,
+        parse_termination: Any,
+        completion_tokens: int,
+        max_tokens: int,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        if isinstance(parse_termination, bool):
+            return ("stop" if parse_termination else "length"), str(parse_termination)
+
+        observed = self._parse_termination_value(parse_termination)
+        if observed is None:
+            return None, None
+
+        normalized = observed.strip().lower()
+        if normalized in {"stop", "stop_sequence", "eos", "end_turn"}:
+            return "stop", observed
+        if normalized in {"length", "max_tokens", "max_token", "truncated"}:
+            return "length", observed
+        if normalized == "malformed":
+            if completion_tokens >= max_tokens:
+                return "length", observed
+            return None, observed
+
+        return None, observed
+
+    def _parse_termination_value(self, parse_termination: Any) -> Optional[str]:
+        if parse_termination is None:
+            return None
+        value = getattr(parse_termination, "value", None)
+        if value is not None:
+            return str(value)
+        name = getattr(parse_termination, "name", None)
+        if name is not None:
+            return str(name)
+        return str(parse_termination)
