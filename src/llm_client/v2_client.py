@@ -14,7 +14,7 @@ import warnings
 
 import httpx
 
-from . import __version__
+from ._version import __version__
 from .v2_builder import ConversationBuilder
 from .v2_models import (
     Conversation,
@@ -922,21 +922,51 @@ def _parse_sse(text):
 
 def _aggregate_stream(protocol, events):
     if protocol == "responses":
-        for event in reversed(events):
-            if event.get("type") == "response.completed" and isinstance(
-                event.get("response"), dict
-            ):
-                return deepcopy(event["response"])
         text = "".join(
             event.get("delta", "")
             for event in events
             if event.get("type") == "response.output_text.delta"
         )
+        reasoning = "".join(
+            event.get("delta", "")
+            for event in events
+            if event.get("type") == "response.reasoning_summary_text.delta"
+        )
+        for event in reversed(events):
+            if event.get("type") == "response.completed" and isinstance(
+                event.get("response"), dict
+            ):
+                response = deepcopy(event["response"])
+                if text and not response.get("output_text"):
+                    response["output_text"] = text
+                if reasoning and not any(
+                    isinstance(item, dict) and item.get("type") == "reasoning"
+                    for item in response.get("output") or []
+                ):
+                    response.setdefault("output", []).insert(
+                        0,
+                        {
+                            "type": "reasoning",
+                            "summary": [
+                                {"type": "summary_text", "text": reasoning}
+                            ],
+                        },
+                    )
+                return response
         return {
             "object": "response",
             "status": "completed",
             "output_text": text,
-            "output": [],
+            "output": (
+                [
+                    {
+                        "type": "reasoning",
+                        "summary": [{"type": "summary_text", "text": reasoning}],
+                    }
+                ]
+                if reasoning
+                else []
+            ),
             "usage": {},
         }
     if protocol == "messages":

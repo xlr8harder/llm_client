@@ -38,7 +38,7 @@ PROVIDER_MAP = {
     "codex": CodexProvider,
 }
 
-__version__ = "0.2.2"
+from ._version import __version__
 
 # V2 is additive. Legacy imports and behavior above remain unchanged.
 from .v2_builder import ConversationBuilder
