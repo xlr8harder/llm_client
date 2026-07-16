@@ -38,4 +38,4 @@ package-dir = {"" = "src"}
 packages = ["llm_client", "llm_client.providers", "llm_client.testing"]
 
 [tool.setuptools.dynamic]
-version = {attr = "llm_client.__version__"}
+version = {attr = "llm_client._version.__version__"}
