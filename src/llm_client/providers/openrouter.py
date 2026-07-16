@@ -5,14 +5,19 @@ OpenRouter provider implementation for LLM client.
 import json
 import os
 
-from ..base import LLMProvider, LLMResponse, with_finish_reason_metadata
+from ..base import LLMResponse, with_finish_reason_metadata
+from .openai_responses import OpenAIResponsesStyleProvider
 
 # API Endpoint Constants
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 
 
-class OpenRouterProvider(LLMProvider):
+class OpenRouterProvider(OpenAIResponsesStyleProvider):
     """Provider implementation for OpenRouter API"""
+
+    api_base = OPENROUTER_API_BASE
+    api_key_env_var = "OPENROUTER_API_KEY"
+    provider_name = "openrouter"
 
     def _get_api_key_env_var(self):
         return "OPENROUTER_API_KEY"
@@ -42,6 +47,17 @@ class OpenRouterProvider(LLMProvider):
                 **options,
             )
             return self._annotate_response(response, normalized_format)
+        if normalized_format == "responses":
+            provider_routing = self._provider_routing_from_options(options)
+            if provider_routing:
+                options["provider"] = provider_routing
+            response = self.make_responses_request(
+                messages=messages,
+                model_id=model_id,
+                context=context,
+                **options,
+            )
+            return self._annotate_response(response, normalized_format)
         return self._invalid_request_format_response(
             request_format=request_format,
             normalized_format=normalized_format,
@@ -64,6 +80,8 @@ class OpenRouterProvider(LLMProvider):
             return "chat_completions"
         if normalized in {"anthropic_message", "anthropic_messages", "anthropic_messages_api"}:
             return "anthropic_messages"
+        if normalized in {"response", "responses", "responses_api"}:
+            return "responses"
         return normalized
 
     def _invalid_request_format_response(
@@ -109,7 +127,12 @@ class OpenRouterProvider(LLMProvider):
                 raw.get("choices"), list
             ):
                 return "openrouter.chat_completions"
+            if request_format == "responses" and isinstance(raw.get("output"), list):
+                return "openrouter.responses"
         return f"openrouter.{request_format}.unknown"
+
+    def _build_responses_headers(self):
+        return self._build_headers()
 
     def _build_headers(self):
         return {

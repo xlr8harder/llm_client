@@ -14,6 +14,8 @@ from .moonshot import MoonshotProvider
 from .stepfun import StepfunProvider
 from .tinker import TinkerProvider
 from .local import LocalProvider
+from .codex import CodexProvider
+from .openai_responses import OpenAIResponsesStyleProvider
 
 __all__ = [
     "OpenAIProvider",
@@ -28,4 +30,6 @@ __all__ = [
     "StepfunProvider",
     "TinkerProvider",
     "LocalProvider",
+    "CodexProvider",
+    "OpenAIResponsesStyleProvider",
 ]
