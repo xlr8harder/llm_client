@@ -36,7 +36,7 @@ PROVIDER_MAP = {
     "openai_compatible": LocalProvider,
 }
 
-__version__ = "0.1.29"
+__version__ = "0.1.30"
 
 
 def get_provider(provider_name):

@@ -47,7 +47,7 @@ uv pip install -e '.[tinker]'
 
 This will install:
 - `tinker` from PyPI
-- `tinker_cookbook` from `git+https://github.com/xlr8harder/tinker-cookbook`
+- `tinker_cookbook` from PyPI, with the `inkling` renderer extra
 
 ## Configuration
 
