@@ -93,30 +93,25 @@ export GOOGLE_AGENT_PLATFORM_ENDPOINT="openapi"
 export XAI_API_KEY="your-xai-key"
 ```
 
-To use a ChatGPT subscription through an existing Codex CLI login, select the
-`codex` provider. No API key environment variable is required:
+To use a ChatGPT subscription through the `codex` provider, complete llm_client's
+independent OAuth login. No API key or Codex CLI installation is required:
 
 ```bash
-codex login
+llm-client auth login codex
 ```
 
 ```python
-provider = get_provider("codex")
-response = retry_request(
-    provider=provider,
-    messages=[{"role": "user", "content": "Reply with exactly: ok"}],
-    model_id="gpt-5.4",
-    timeout=120,
-)
+with Client() as client:
+    model = client.model("codex/gpt-5.4")
+    response = model.generate("Reply with exactly: ok")
 ```
 
-The provider reads the ChatGPT OAuth credentials from
-`$CODEX_HOME/auth.json` (default `~/.codex/auth.json`), refreshes expired
-credentials under a cross-process lock, and uses the Codex Responses endpoint
-directly. Set `LLM_CLIENT_CODEX_AUTH_FILE` only when the credentials live at a
-different explicit path. Codex requests accept the existing chat-style
-`messages` interface, but `top_k` is not supported and fails with an
-`invalid_option` error that explains how to fix the request.
+Credentials are stored at `~/.config/llm_client/codex-oauth.json`, independently
+of Codex CLI, and are discovered automatically by `Client`. Use
+`llm-client auth status codex` and `llm-client auth logout codex` to inspect or
+remove the login. Codex subscription requests consume the account's Codex usage
+allowance and are subject to its credit and rate limits; use an API-key provider
+for general bulk inference workloads.
 
 ## Responses API
 

@@ -61,7 +61,6 @@ Binding never silently changes the stored model ID.
 
 - Incremental caller-visible stream iteration (`model.stream(...)`). SSE is
   currently consumed into one response while preserving every raw event.
-- A browser callback listener or login CLI for live Codex OAuth.
 - Legacy Completions protocol support in the V2 facade.
 
 The complete target contract and migration rules are in

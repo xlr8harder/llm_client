@@ -29,6 +29,9 @@ tinker = [
     "tinker-cookbook[inkling]>=0.5.2",
 ]
 
+[project.scripts]
+llm-client = "llm_client.cli:main"
+
 [project.urls]
 "Homepage" = "https://github.com/xlr8harder/llm_client"
 "Bug Tracker" = "https://github.com/xlr8harder/llm_client/issues"

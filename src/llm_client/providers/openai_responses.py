@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from ..base import LLMProvider, LLMResponse, with_finish_reason_metadata
+from ..oauth import OAuthError
 from ..v2_client import Client
 
 
@@ -133,7 +134,7 @@ class OpenAIResponsesStyleProvider(LLMProvider):
                 ).generate(messages=messages, **options)
         except _InvalidResponsesOption as error:
             return self._invalid_option(str(error), context)
-        except (OSError, ValueError) as error:
+        except (OSError, OAuthError, ValueError) as error:
             return LLMResponse(
                 success=False,
                 error_info={"type": "auth_error", "message": str(error)},

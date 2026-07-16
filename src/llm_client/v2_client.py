@@ -15,6 +15,7 @@ import warnings
 import httpx
 
 from ._version import __version__
+from .codex_oauth import CodexOAuthManager
 from .v2_builder import ConversationBuilder
 from .v2_models import (
     Conversation,
@@ -335,10 +336,15 @@ class Client:
         self.timeout = timeout
         self.max_retries = max_retries
         self.auth = dict(auth or {})
+        self._owned_auth: dict[str, Any] = {}
+        self._auth_lock = threading.Lock()
         self._http = httpx.Client(timeout=timeout, transport=transport)
 
     def close(self) -> None:
         self._http.close()
+        for manager in self._owned_auth.values():
+            manager.close()
+        self._owned_auth.clear()
 
     def __enter__(self):
         return self
@@ -422,6 +428,13 @@ class Client:
     def _auth_headers(self, provider: str) -> dict[str, str]:
         if provider in self.auth:
             return self.auth[provider].get_headers()
+        if provider == "codex":
+            with self._auth_lock:
+                manager = self._owned_auth.get(provider)
+                if manager is None:
+                    manager = CodexOAuthManager.create()
+                    self._owned_auth[provider] = manager
+            return manager.get_headers()
         key = self._api_key(provider)
         return {"Authorization": f"Bearer {key}"} if key else {}
 
@@ -451,12 +464,17 @@ class AsyncClient(Client):
         self.api_keys = dict(api_keys or {})
         self.local_endpoint = local_endpoint
         self.auth = dict(auth or {})
+        self._owned_auth = {}
+        self._auth_lock = threading.Lock()
         self.timeout = timeout
         self.max_retries = max_retries
         self._http = httpx.AsyncClient(timeout=timeout, transport=transport)
 
     async def aclose(self):
         await self._http.aclose()
+        for manager in self._owned_auth.values():
+            manager.close()
+        self._owned_auth.clear()
 
     async def __aenter__(self):
         return self

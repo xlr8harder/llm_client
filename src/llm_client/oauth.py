@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import os
@@ -28,6 +28,7 @@ class OAuthConfig:
     token_url: str
     scopes: tuple[str, ...]
     redirect_uri: str
+    authorization_params: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -165,6 +166,7 @@ class OAuthManager:
             "code_challenge_method": "S256",
             "state": state,
         }
+        params.update(self.config.authorization_params)
         return OAuthLoginRequest(
             url=f"{self.config.authorization_url}?{urlencode(params)}",
             state=state,

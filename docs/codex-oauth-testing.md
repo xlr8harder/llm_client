@@ -20,7 +20,8 @@ The generic OAuth implementation provides:
 
 `CodexOAuthManager` additionally provides:
 
-- The canonical OpenAI scopes `openid profile email offline_access`.
+- The upstream Codex scopes `openid profile email offline_access
+  api.connectors.read api.connectors.invoke`.
 - ChatGPT account ID extraction from the access-token claim.
 - `Authorization`, `chatgpt-account-id`, `originator`, and Responses beta headers.
 - An independent default credential path under
@@ -28,8 +29,9 @@ The generic OAuth implementation provides:
 - Codex Responses request defaults: stateless storage, streaming, and encrypted
   reasoning content inclusion.
 
-No OAuth client ID is hard-coded. `client_id` remains explicit until a supported
-third-party registration or public-client policy is confirmed.
+- The public native Codex client ID and its fixed loopback callback shape.
+- A browser callback CLI plus manual callback mode for remote environments.
+- Automatic credential discovery for sync and async clients.
 
 ## Automated Fake-Server Coverage
 
@@ -55,28 +57,18 @@ uv run pytest -q tests/test_oauth.py
 ## Live Validation Still Required
 
 Live testing requires a user to complete the browser authorization step and must
-answer these external-policy questions:
-
-1. Which OAuth client ID is supported for `llm_client`?
-2. Which redirect URIs are registered for that client?
-3. Is direct external-tool use supported without an intermediary auth service?
-4. Does the token response rotate refresh tokens consistently?
-5. Does the access token contain the expected ChatGPT account claim?
-6. Which Codex models are exposed to the signed-in account?
+confirm token rotation, account claims, model availability, and server-enforced
+usage limits for that account.
 
 After those are resolved, live validation should:
 
-1. Construct `CodexOAuthManager.create(...)` with a supported client ID.
-2. Call `begin_login()` and open the returned URL.
-3. Pass the resulting callback URL to `complete_redirect()`.
-4. Create `Client(auth={"codex": manager})`.
-5. Send a one-turn request to `codex/<advertised-model>`.
+1. Run `llm-client auth login codex`.
+2. Create a default `Client()` and send a one-turn request to an available
+   `codex/<model>` route.
 6. Serialize the operation and run credential canary checks.
 7. Restore and continue the conversation, verifying encrypted reasoning replay.
 8. Force token expiry and verify one refresh under parallel load.
 9. Confirm the Codex CLI login remains unaffected.
 
-The browser callback listener and user-facing CLI login command are intentionally
-left for the live-validation phase. The protocol, storage, refresh, integration,
-and fake-server test boundaries are already isolated so that work does not require
-changing the conversation or provider APIs.
+The remaining work is live-account validation; automated coverage does not make
+requests against a user's subscription.

@@ -14,11 +14,20 @@ from .oauth import OAuthConfig, OAuthCredentialStore, OAuthError, OAuthManager
 CODEX_AUTH_BASE = "https://auth.openai.com"
 CODEX_API_BASE = "https://chatgpt.com/backend-api/codex"
 CODEX_AUTH_CLAIM = "https://api.openai.com/auth"
+CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+CODEX_SCOPES = (
+    "openid",
+    "profile",
+    "email",
+    "offline_access",
+    "api.connectors.read",
+    "api.connectors.invoke",
+)
 
 
 def codex_oauth_config(
     *,
-    client_id: str,
+    client_id: str = CODEX_CLIENT_ID,
     redirect_uri: str = "http://localhost:1455/auth/callback",
     auth_base: str = CODEX_AUTH_BASE,
 ) -> OAuthConfig:
@@ -29,8 +38,13 @@ def codex_oauth_config(
         client_id=client_id,
         authorization_url=f"{auth_base.rstrip('/')}/oauth/authorize",
         token_url=f"{auth_base.rstrip('/')}/oauth/token",
-        scopes=("openid", "profile", "email", "offline_access"),
+        scopes=CODEX_SCOPES,
         redirect_uri=redirect_uri,
+        authorization_params={
+            "id_token_add_organizations": "true",
+            "codex_cli_simplified_flow": "true",
+            "originator": "llm_client",
+        },
     )
 
 
@@ -41,7 +55,7 @@ class CodexOAuthManager(OAuthManager):
     def create(
         cls,
         *,
-        client_id: str,
+        client_id: str = CODEX_CLIENT_ID,
         credential_path: str | Path | None = None,
         redirect_uri: str = "http://localhost:1455/auth/callback",
         auth_base: str = CODEX_AUTH_BASE,
@@ -62,6 +76,10 @@ class CodexOAuthManager(OAuthManager):
         )
 
     def get_headers(self) -> dict[str, str]:
+        if self.store.load() is None:
+            raise OAuthError(
+                "Codex is not configured. Run `llm-client auth login codex` before using a codex/... model."
+            )
         access = self.get_access_token()
         account_id = _account_id(access)
         if not account_id:

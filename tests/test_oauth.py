@@ -237,3 +237,27 @@ def test_codex_headers_and_responses_defaults_with_fake_credentials(tmp_path):
         assert response.content == "codex ok"
     finally:
         manager.close()
+
+
+def test_codex_authorize_request_matches_upstream_public_client_shape(tmp_path):
+    manager = CodexOAuthManager.create(credential_path=tmp_path / "codex.json")
+    try:
+        login = manager.begin_login(state="state", verifier="v" * 64)
+        query = parse_qs(urlparse(login.url).query)
+    finally:
+        manager.close()
+    assert query["client_id"] == ["app_EMoamEEZ73f0CkXaXp7hrann"]
+    assert query["redirect_uri"] == ["http://localhost:1455/auth/callback"]
+    assert query["scope"] == [
+        "openid profile email offline_access api.connectors.read api.connectors.invoke"
+    ]
+    assert query["id_token_add_organizations"] == ["true"]
+    assert query["codex_cli_simplified_flow"] == ["true"]
+    assert query["originator"] == ["llm_client"]
+
+
+def test_default_client_explains_unconfigured_codex_backend(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_CLIENT_CODEX_AUTH_FILE", str(tmp_path / "missing.json"))
+    with Client(transport=httpx.MockTransport(lambda _request: None)) as client:
+        with pytest.raises(OAuthError, match="llm-client auth login codex"):
+            client.model("codex/gpt-test").generate("hello")

@@ -3,6 +3,7 @@ LLM client library for interacting with various LLM API providers.
 """
 
 from .base import LLMProvider, LLMResponse
+from ._version import __version__ as __version__
 from .retry import retry_request
 from .providers import (
     OpenAIProvider,
@@ -19,26 +20,6 @@ from .providers import (
     LocalProvider,
     CodexProvider,
 )
-
-# Convenient mapping of provider names to their implementations
-PROVIDER_MAP = {
-    "openai": OpenAIProvider,
-    "openrouter": OpenRouterProvider,
-    "fireworks": FireworksProvider,
-    "chutes": ChutesProvider,
-    "google": GoogleProvider,
-    "google_agent_platform": GoogleAgentPlatformProvider,
-    "tngtech": TNGTechProvider,
-    "xai": XAIProvider,
-    "moonshot": MoonshotProvider,
-    "stepfun": StepfunProvider,
-    "tinker": TinkerProvider,
-    "local": LocalProvider,
-    "openai_compatible": LocalProvider,
-    "codex": CodexProvider,
-}
-
-from ._version import __version__
 
 # V2 is additive. Legacy imports and behavior above remain unchanged.
 from .v2_builder import ConversationBuilder
@@ -71,6 +52,25 @@ from .oauth import (
     OAuthManager,
 )
 from .codex_oauth import CodexOAuthManager, codex_oauth_config
+
+
+# Convenient mapping of provider names to their implementations
+PROVIDER_MAP = {
+    "openai": OpenAIProvider,
+    "openrouter": OpenRouterProvider,
+    "fireworks": FireworksProvider,
+    "chutes": ChutesProvider,
+    "google": GoogleProvider,
+    "google_agent_platform": GoogleAgentPlatformProvider,
+    "tngtech": TNGTechProvider,
+    "xai": XAIProvider,
+    "moonshot": MoonshotProvider,
+    "stepfun": StepfunProvider,
+    "tinker": TinkerProvider,
+    "local": LocalProvider,
+    "openai_compatible": LocalProvider,
+    "codex": CodexProvider,
+}
 
 
 def get_provider(provider_name):

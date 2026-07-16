@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
 
 from ..codex_oauth import CODEX_API_BASE, CodexOAuthManager
@@ -28,17 +27,14 @@ class CodexProvider(OpenAIResponsesStyleProvider):
         self.client_id = client_id
 
     def _get_api_key_env_var(self) -> str:
-        return "LLM_CLIENT_CODEX_CLIENT_ID"
+        return "CODEX_ACCESS_TOKEN"
 
     def _build_responses_headers(self) -> Dict[str, str]:
         manager = self.auth_manager
         if manager is None:
-            client_id = self.client_id or os.getenv("LLM_CLIENT_CODEX_CLIENT_ID", "")
-            if not client_id:
-                raise ValueError(
-                    "Codex OAuth requires LLM_CLIENT_CODEX_CLIENT_ID. Configure it and complete the llm_client Codex login flow."
-                )
-            manager = self.auth_manager = CodexOAuthManager.create(client_id=client_id)
+            manager = self.auth_manager = CodexOAuthManager.create(
+                **({"client_id": self.client_id} if self.client_id else {})
+            )
         return {
             **manager.get_headers(),
             "originator": "llm_client",

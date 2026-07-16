@@ -225,4 +225,4 @@ def test_codex_without_oauth_configuration_fails_clearly():
         )
     assert not response.success
     assert response.error_info["type"] == "auth_error"
-    assert "LLM_CLIENT_CODEX_CLIENT_ID" in response.error_info["message"]
+    assert "llm-client auth login codex" in response.error_info["message"]
